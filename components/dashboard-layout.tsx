@@ -1,23 +1,58 @@
 'use client'
 
+import type { ReactNode } from 'react'
+
 import { AppSidebar } from '@/components/app-sidebar'
 import { Bell, HelpCircle, Menu } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { workspaceThemeToStyle } from '@/lib/theme/css'
+import type { ThemeWithTokens } from '@/lib/theme/types'
 
-interface DashboardLayoutProps {
-  children: React.ReactNode
-  title?: string
-  description?: string
-  actions?: React.ReactNode
+export type DashboardWorkspace = {
+  id: string
+  name: string
+  brand_name?: string | null
+  plan_key?: string | null
+  role_key?: string
 }
 
-export function DashboardLayout({ children, title, description, actions }: DashboardLayoutProps) {
+interface DashboardLayoutProps {
+  children: ReactNode
+  title?: string
+  description?: string
+  actions?: ReactNode
+  workspace?: DashboardWorkspace | null
+  workspaces?: DashboardWorkspace[]
+  userEmail?: string | null
+  theme?: ThemeWithTokens | null
+}
+
+export function DashboardLayout({
+  children,
+  title,
+  description,
+  actions,
+  workspace,
+  workspaces = [],
+  userEmail,
+  theme = null,
+}: DashboardLayoutProps) {
+  const themeStyle = workspaceThemeToStyle(theme)
+
   return (
-    <div className="flex h-screen bg-background">
-      <AppSidebar />
+    <div
+      className="skail-themed-workspace flex h-screen bg-background text-foreground"
+      data-workspace-theme-mode={theme?.mode ?? 'system'}
+      style={themeStyle}
+    >
+      <AppSidebar
+        userEmail={userEmail}
+        workspace={workspace}
+        workspaces={workspaces}
+      />
       <div className="flex flex-1 flex-col overflow-hidden">
         {/* Header */}
-        <header className="flex h-14 items-center justify-between border-b border-border px-6">
+        <header className="flex h-14 items-center justify-between border-b border-border bg-background px-6">
           <div className="flex items-center gap-4">
             <Button variant="ghost" size="icon" className="lg:hidden">
               <Menu className="h-5 w-5" />

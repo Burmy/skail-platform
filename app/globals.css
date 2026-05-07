@@ -135,3 +135,20 @@
     @apply bg-background text-foreground;
   }
 }
+
+.skail-themed-workspace {
+  font-family: var(--skail-body-font);
+}
+
+.skail-themed-workspace h1,
+.skail-themed-workspace h2,
+.skail-themed-workspace h3,
+.skail-themed-workspace h4,
+.skail-themed-workspace h5,
+.skail-themed-workspace h6 {
+  font-family: var(--skail-heading-font);
+}
+
+.skail-themed-workspace [data-skail-brand] {
+  font-family: var(--skail-brand-font);
+}

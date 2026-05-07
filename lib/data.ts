@@ -9,6 +9,7 @@ export const navItems = [
   { label: 'AI Builder', href: '/ai-builder', icon: 'Sparkles', badge: 'AI' },
   { label: 'Agents', href: '/agents', icon: 'Bot' },
   { label: 'Automations', href: '/automations', icon: 'Zap' },
+  { label: 'Theme', href: '/settings/theme', icon: 'Palette' },
   { label: 'Settings', href: '/settings', icon: 'Settings' },
 ]
 

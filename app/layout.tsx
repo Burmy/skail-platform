@@ -17,6 +17,10 @@ export const metadata: Metadata = {
   title: 'SKAIL - AI-Powered Workspace Builder',
   description: 'Build customizable workspaces and portals with AI assistance',
   generator: 'v0.app',
+  icons: {
+    icon: '/icon.svg',
+    apple: '/apple-icon.png',
+  },
 }
 
 export default function RootLayout({
