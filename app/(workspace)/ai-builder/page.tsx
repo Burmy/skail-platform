@@ -1,8 +1,6 @@
 import { notFound, redirect } from 'next/navigation'
 
 import { AiBuilderChat } from '@/components/ai-builder/ai-builder-chat'
-import { DashboardLayout } from '@/components/dashboard-layout'
-import { getAppliedWorkspaceTheme } from '@/lib/theme/applied-theme'
 import {
   getUserWorkspaces,
   getWorkspaceForUser,
@@ -32,34 +30,17 @@ export default async function AIBuilderPage({
     redirect(`/ai-builder?workspace_id=${workspaceId}`)
   }
 
-  const [workspaceContext, appliedTheme] = await Promise.all([
-    getWorkspaceForUser(workspaceId),
-    getAppliedWorkspaceTheme(workspaceId),
-  ])
+  const workspaceContext = await getWorkspaceForUser(workspaceId)
 
   if (!workspaceContext.workspace || !workspaceContext.roleKey) {
     notFound()
   }
 
-  const activeWorkspace = {
-    ...workspaceContext.workspace,
-    role_key: workspaceContext.roleKey,
-  }
-
   return (
-    <DashboardLayout
-      description="Preview and confirm AI-generated workspace changes"
-      title="AI Builder"
-      userEmail={user.email}
-      workspace={activeWorkspace}
-      workspaces={workspaces}
-      theme={appliedTheme}
-    >
-      <AiBuilderChat
-        canApply={canApplyAiBuilderChanges(workspaceContext.roleKey)}
-        userEmail={user.email ?? null}
-        workspaceId={workspaceId}
-      />
-    </DashboardLayout>
+    <AiBuilderChat
+      canApply={canApplyAiBuilderChanges(workspaceContext.roleKey)}
+      userEmail={user.email ?? null}
+      workspaceId={workspaceId}
+    />
   )
 }

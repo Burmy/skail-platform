@@ -1,13 +1,12 @@
 'use client'
 
-import { useEffect, useMemo, useState, useTransition } from 'react'
+import { useMemo, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   AlertCircleIcon,
   CheckIcon,
   FunctionSquareIcon,
   Loader2Icon,
-  XIcon,
 } from 'lucide-react'
 
 import { cn } from '@/lib/utils'
@@ -30,6 +29,7 @@ export type FormulaEditorProps = {
   isReadOnly?: boolean
   className?: string
   computedValue?: Json | null
+  suppressRefresh?: boolean
 }
 
 function readFormulaSource(field: CollectionFieldWithType) {
@@ -58,6 +58,7 @@ export function FormulaEditor({
   isReadOnly,
   className,
   computedValue,
+  suppressRefresh = false,
 }: FormulaEditorProps) {
   const router = useRouter()
   const [, startTransition] = useTransition()
@@ -96,7 +97,7 @@ export function FormulaEditor({
       if (result.ok) {
         setSavedMessage('Saved')
         setTimeout(() => setSavedMessage(null), 1500)
-        router.refresh()
+        if (!suppressRefresh) router.refresh()
         setOpen(false)
       } else {
         setSavedMessage(result.error)

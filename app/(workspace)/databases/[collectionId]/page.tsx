@@ -1,11 +1,9 @@
 import { notFound, redirect } from 'next/navigation'
 
-import { DashboardLayout } from '@/components/dashboard-layout'
 import { DatabaseShell } from '@/components/databases/database-shell'
 import { getCollectionWorkspaceData } from '@/lib/databases/queries'
 import { migrateWorkspaceDatabasesIfNeeded } from '@/lib/databases/migrate'
-import { getAppliedWorkspaceTheme } from '@/lib/theme/applied-theme'
-import { getUserWorkspaces, getWorkspaceForUser } from '@/lib/workspaces/queries'
+import { getUserWorkspaces } from '@/lib/workspaces/queries'
 
 export const dynamic = 'force-dynamic'
 
@@ -39,30 +37,14 @@ export default async function CollectionWorkspacePage({
 
   await migrateWorkspaceDatabasesIfNeeded(workspaceId)
 
-  const [data, ctx, appliedTheme] = await Promise.all([
-    getCollectionWorkspaceData({
-      workspaceId,
-      collectionId,
-      viewId: sp.view ?? null,
-      search: sp.q ?? null,
-    }),
-    getWorkspaceForUser(workspaceId),
-    getAppliedWorkspaceTheme(workspaceId),
-  ])
+  const data = await getCollectionWorkspaceData({
+    workspaceId,
+    collectionId,
+    viewId: sp.view ?? null,
+    search: sp.q ?? null,
+  })
 
   if (!data) notFound()
-  if (!ctx.workspace || !ctx.roleKey) notFound()
 
-  return (
-    <DashboardLayout
-      description="Collections, fields, and records"
-      title={data.collection.name}
-      userEmail={data.userEmail}
-      workspace={{ ...ctx.workspace, role_key: ctx.roleKey }}
-      workspaces={data.workspaces}
-      theme={appliedTheme}
-    >
-      <DatabaseShell data={data} />
-    </DashboardLayout>
-  )
+  return <DatabaseShell data={data} />
 }

@@ -134,7 +134,11 @@ function DatabaseViewBlockRenderer({
     : null
 
   return (
-    <div className="my-2 w-full">
+    <div
+      className="my-2 w-full"
+      onClick={(event) => event.stopPropagation()}
+      onPointerDown={(event) => event.stopPropagation()}
+    >
       <div className="mb-1 flex items-center gap-2 px-1 text-xs text-muted-foreground">
         <DatabaseIcon className="size-3.5" />
         <span className="truncate font-medium text-foreground">

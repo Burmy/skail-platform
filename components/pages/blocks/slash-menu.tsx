@@ -1,6 +1,7 @@
 'use client'
 
 import { getDefaultReactSlashMenuItems, type DefaultReactSuggestionItem } from '@blocknote/react'
+import { getMultiColumnSlashMenuItems } from '@blocknote/xl-multi-column'
 import {
   filterSuggestionItems,
   insertOrUpdateBlockForSlashMenu,
@@ -88,6 +89,10 @@ export function getSkailSlashMenuItems(
   ctx: Ctx,
 ): DefaultReactSuggestionItem[] {
   const defaults = getDefaultReactSlashMenuItems(editor).map((item) => ({
+    ...item,
+    group: item.group ?? 'Basic blocks',
+  }))
+  const columns = getMultiColumnSlashMenuItems(editor as never).map((item) => ({
     ...item,
     group: item.group ?? 'Basic blocks',
   }))
@@ -209,6 +214,7 @@ export function getSkailSlashMenuItems(
   return [
     ...suggested,
     ...defaults,
+    ...columns,
     ...pages,
     ...media,
     ...databaseGroup,

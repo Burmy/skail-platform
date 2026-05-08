@@ -29,6 +29,7 @@ export type FileEditorProps = {
   fieldId: string
   isReadOnly?: boolean
   className?: string
+  suppressRefresh?: boolean
 }
 
 type FileEntry = {
@@ -47,6 +48,7 @@ export function FileEditor({
   fieldId,
   isReadOnly,
   className,
+  suppressRefresh = false,
 }: FileEditorProps) {
   const router = useRouter()
   const [open, setOpen] = useState(false)
@@ -103,7 +105,7 @@ export function FileEditor({
       })
       if (!meta.ok) throw new Error(meta.error)
       await refresh()
-      router.refresh()
+      if (!suppressRefresh) router.refresh()
     } catch (err) {
       setErrorMessage(err instanceof Error ? err.message : 'Upload failed')
     } finally {
@@ -128,7 +130,7 @@ export function FileEditor({
       if (!meta.ok) throw new Error(meta.error)
       setLinkUrl('')
       await refresh()
-      router.refresh()
+      if (!suppressRefresh) router.refresh()
     } catch (err) {
       setErrorMessage(err instanceof Error ? err.message : 'Could not attach link')
     } finally {
@@ -142,7 +144,7 @@ export function FileEditor({
       const result = await removeFile({ workspaceId, fileId: id })
       if (!result.ok) throw new Error(result.error)
       await refresh()
-      router.refresh()
+      if (!suppressRefresh) router.refresh()
     } catch (err) {
       setErrorMessage(err instanceof Error ? err.message : 'Remove failed')
     } finally {

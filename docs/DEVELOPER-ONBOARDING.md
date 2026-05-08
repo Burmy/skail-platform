@@ -25,6 +25,9 @@ sql/supabase_schema_v1.sql
 sql/supabase_rls_v1.sql
 sql/supabase_theme_styling_v1.sql
 sql/supabase_ai_builder_v1.sql
+sql/supabase_pages_engine_v1.sql
+sql/supabase_page_sharing_v1.sql
+sql/supabase_database_engine_v2.sql
 sql/seed_templates_v1.sql
 ```
 
@@ -36,15 +39,17 @@ npm run dev
 
 6. Open `http://localhost:3000`.
 
-7. Create an account and workspace.
+7. Create an account and workspace, or use local test credentials if provided in your private `.env`.
 
 8. Visit:
 
-- `/databases`
-- `/views`
-- `/pages`
-- `/settings/theme`
-- `/ai-builder`
+- `/workspaces/[workspaceId]`
+- `/pages?workspace_id=[workspaceId]`
+- `/databases?workspace_id=[workspaceId]`
+- `/settings/theme?workspace_id=[workspaceId]`
+- `/ai-builder?workspace_id=[workspaceId]`
+
+Saved views are inside the Databases app; there is no standalone `/views` route.
 
 ## Local Supabase Setup
 
@@ -63,7 +68,7 @@ Important:
 
 - Service role key is server-only.
 - Do not put service role or Gemini key in `NEXT_PUBLIC_*`.
-- Apply SQL before testing workspace creation and builder routes.
+- Apply SQL before testing workspace creation, pages, sharing, databases, and builder routes.
 
 ## Create a Test Workspace
 
@@ -85,33 +90,57 @@ The server action creates:
 Use this pattern:
 
 ```text
-route page -> query helper -> Supabase tables -> client component -> server action
+route page -> query helper/access helper -> Supabase tables -> client component -> server action/API route
+```
+
+Example: workspace shell
+
+```text
+app/(workspace)/layout.tsx
+  -> components/workspace-shell.tsx
+    -> app/api/workspaces/shell/route.ts
+      -> lib/workspaces/queries.ts
+      -> lib/theme/applied-theme.ts
+    -> components/dashboard-layout.tsx
+    -> components/app-sidebar.tsx
+```
+
+Example: page editor
+
+```text
+app/(workspace)/p/[pageId]/page.tsx
+  -> lib/pages/access.ts
+  -> page_documents
+  -> components/pages/page-shell.tsx
+  -> components/pages/page-editor.tsx
+  -> app/pages/actions.ts
+```
+
+Example: embedded database block
+
+```text
+components/pages/blocks/database-view-block.tsx
+  -> components/pages/blocks/embedded-database.tsx
+    -> app/api/pages/databases/shell/route.ts
+      -> lib/pages/document-sources.ts
+      -> lib/databases/queries.ts
+    -> components/databases/database-shell.tsx
 ```
 
 Example: Databases
 
 ```text
-app/databases/page.tsx
-  -> lib/properties/queries.ts
-    -> collections, collection_fields, collection_records, record_values
-  -> components/properties/property-engine.tsx
+app/(workspace)/databases/[collectionId]/page.tsx
+  -> lib/databases/queries.ts
+    -> collections, collection_fields, collection_records, record_values, views
+  -> components/databases/database-shell.tsx
     -> app/databases/actions.ts
-```
-
-Example: Pages
-
-```text
-app/pages/page.tsx
-  -> lib/layout/queries.ts
-    -> pages, widgets, page_style_settings, widget_style_settings
-  -> components/layout-builder/layout-builder.tsx
-    -> app/pages/actions.ts
 ```
 
 Example: AI Builder
 
 ```text
-app/ai-builder/page.tsx
+app/(workspace)/ai-builder/page.tsx
   -> components/ai-builder/ai-builder-chat.tsx
     -> app/api/ai-builder/chat/route.ts
       -> lib/ai-builder/context.ts
@@ -119,16 +148,33 @@ app/ai-builder/page.tsx
       -> lib/ai-builder/store.ts
 ```
 
-## Add a New Route Safely
+## Add a New Workspace Route Safely
 
-1. Create `app/<route>/page.tsx`.
-2. Decide whether it needs auth/workspace membership.
-3. If it is workspace-scoped, resolve `workspace_id` from params/search params and validate with `getWorkspaceForUser`.
-4. Use `DashboardLayout` for authenticated workspace surfaces.
+1. Create `app/(workspace)/<route>/page.tsx`.
+2. Decide whether it needs `workspace_id` from query or route params.
+3. Validate membership with existing workspace query helpers.
+4. Render route body only; the persistent shell is already provided by `app/(workspace)/layout.tsx`.
 5. Put interactive UI in a Client Component under `components/<feature>/`.
 6. Put data loading in `lib/<feature>/queries.ts`.
-7. Put form mutations in `app/<route>/actions.ts`.
+7. Put form mutations in `app/<route>/actions.ts` if they are shared across route groups.
 8. Add the route to `docs/ROUTES.md`.
+
+## Add a Public Route Safely
+
+Use public routes for:
+
+- auth
+- public sharing
+- invite acceptance
+- public forms
+- webhooks
+
+Guidelines:
+
+- Do not rely on the workspace shell.
+- Validate token/signature/access inside the route.
+- Keep public writes narrowly scoped.
+- Do not expose service-role behavior to the browser.
 
 ## Add a New Supabase Table
 
@@ -136,7 +182,7 @@ app/ai-builder/page.tsx
 2. Include `workspace_id` if the table is tenant-owned.
 3. Add foreign keys with clear delete behavior.
 4. Enable RLS.
-5. Add at least read policies.
+5. Add read policies.
 6. Add write policies when role capabilities are ready, or validate writes server-side with service role.
 7. Update `lib/supabase/database.types.ts`.
 8. Document the table in `docs/DATA-MODEL.md`.
@@ -146,13 +192,13 @@ app/ai-builder/page.tsx
 
 1. Place it in the route's `actions.ts`.
 2. Mark the file with `'use server'`.
-3. Parse `FormData` with Zod.
+3. Parse input with Zod.
 4. Get current user through `createClient()`.
-5. Check active `workspace_members`.
-6. Check role/permission.
+5. Check active `workspace_members` or page/share access.
+6. Check role/access level.
 7. Use `createAdminClient()` only after validation.
 8. Filter writes by `workspace_id`.
-9. Revalidate affected routes.
+9. Revalidate affected routes only when needed.
 10. Return a small action state for UI messages.
 
 ## Add a New API Route
@@ -162,14 +208,15 @@ Use route handlers for:
 - AI/backend APIs called from client components.
 - Webhooks.
 - External integrations.
-- Non-form JSON endpoints.
+- Embedded database/page source APIs.
+- Public form/token endpoints.
 
 Guidelines:
 
-- Validate JSON body with Zod.
+- Validate JSON/query/body with Zod or explicit checks.
 - Return JSON errors with correct HTTP status.
 - Do not rely on proxy auth redirects.
-- Re-check auth/session inside the route.
+- Re-check auth/session/token inside the route.
 - Keep secrets server-only.
 
 ## Add a New UI Component
@@ -178,31 +225,33 @@ Guidelines:
 2. Put product-specific components under `components/<feature>/`.
 3. Use TypeScript props.
 4. Keep data fetching outside Client Components when possible.
-5. Keep forms connected to server actions.
+5. Keep forms connected to server actions or route handlers.
 6. Avoid introducing new dependencies without a clear reason.
+7. For UI work, read `DESIGN.md` first.
 
-## Add a New Widget Type
+## Add a New Page Block
 
-1. Update `lib/layout/types.ts`.
-2. Add metadata in `WIDGET_TYPE_META`.
-3. Add icon/rendering in `components/layout-builder/layout-builder.tsx`.
-4. Add server action validation if needed.
-5. Update AI Builder allowed widget types if it should be AI-buildable.
+1. Update `components/pages/blocks/index.ts`.
+2. Add a block renderer under `components/pages/blocks/`.
+3. Decide whether the block stores content in BlockNote props, page document JSON, or a related table.
+4. If it references database/page sources, validate those sources server-side.
+5. Update slash menu behavior in `components/pages/blocks/slash-menu.tsx` if it should be insertable.
 6. Update docs.
 
-## Add a New Property Type
+## Add a New Database View Type
 
-1. Update `lib/properties/types.ts`.
-2. Add type metadata.
-3. Update `PropertyEngine` render/edit behavior.
-4. Update record serialization in `app/databases/actions.ts`.
-5. Update AI Builder contract if it should be AI-buildable.
-6. Update docs and SQL constraints if constraints are added later.
+1. Update `lib/views/types.ts`.
+2. Add default config and parsing/serialization.
+3. Add route/action validation in `app/databases/actions.ts`.
+4. Add renderer in `components/databases/views/`.
+5. Add view metadata/icons in view tabs/source pickers.
+6. Update embedded database handling if the view should work on pages.
+7. Update docs.
 
 ## Add AI Builder Actions
 
 1. Update `lib/ai-builder/contract.ts`.
-2. Update prompt action shapes in `lib/ai-builder/gemini.ts`.
+2. Update prompt/action shapes in `lib/ai-builder/gemini.ts`.
 3. Update apply behavior in `lib/ai-builder/apply.ts`.
 4. Update preview rendering in `components/ai-builder/ai-builder-chat.tsx` if needed.
 5. Ensure destructive changes are preview-only or require confirmation.
@@ -213,15 +262,15 @@ Guidelines:
 
 ```bash
 npm run dev
+npx tsc --noEmit
 npm run lint
-npx tsc --noEmit --incremental false
 npm run build
 ```
 
 Notes:
 
 - `npm run build` currently ignores TypeScript build errors because of `next.config.mjs`.
-- Use `npx tsc --noEmit --incremental false` to catch TypeScript issues.
+- Use `npx tsc --noEmit` to catch TypeScript issues.
 
 ## Review Checklist
 
@@ -229,7 +278,8 @@ Before ending a task:
 
 - Did you avoid changing unrelated dirty files?
 - Did you preserve `workspace_id` scoping?
-- Did you validate membership before writes?
+- Did you validate membership or page/share access before writes?
 - Did you keep secrets server-only?
+- Did you avoid unnecessary `router.refresh()` in embedded/interactive surfaces?
 - Did you update documentation if behavior changed?
 - Did you run the appropriate checks?

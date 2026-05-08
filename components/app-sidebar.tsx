@@ -17,7 +17,6 @@ import {
   LogOut,
   Palette,
   Plus,
-  Search,
   Settings,
   Sparkles,
   Zap,
@@ -98,6 +97,7 @@ export function AppSidebar({
     startTransition(async () => {
       const result = await createPage({ workspaceId })
       if (result.ok && result.data) {
+        window.dispatchEvent(new CustomEvent('skail:pages-nav-refresh'))
         router.push(`/p/${result.data.id}`)
         onNavigate?.()
       }
@@ -113,7 +113,6 @@ export function AppSidebar({
         className,
       )}
     >
-      {/* Workspace header */}
       <div className="flex h-14 items-center justify-between border-b border-sidebar-border px-3">
         <Link
           href={homeHref}
@@ -148,20 +147,6 @@ export function AppSidebar({
         ) : null}
       </div>
 
-      {/* Search */}
-      {!isCollapsed ? (
-        <div className="border-b border-sidebar-border/70 p-3">
-          <button className="flex h-9 w-full items-center gap-2 rounded-md border border-sidebar-border bg-background/55 px-3 text-sm text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring">
-            <Search className="size-4" />
-            <span>Search…</span>
-            <kbd className="ml-auto rounded border border-sidebar-border bg-sidebar-accent px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
-              Ctrl K
-            </kbd>
-          </button>
-        </div>
-      ) : null}
-
-      {/* Workspace switcher */}
       {!isCollapsed && workspaces.length > 1 ? (
         <div className="border-b border-sidebar-border/70 p-3">
           <DropdownMenu>
@@ -193,13 +178,12 @@ export function AppSidebar({
       <nav className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
         {!isCollapsed ? (
           <>
-            {/* Home */}
             <Link
-              href={appHref(homeNav.href, workspaceId)}
+              href={homeHref}
               onClick={onNavigate}
               className={cn(
                 'flex h-8 items-center gap-2 rounded-md px-2 text-sm transition-colors',
-                pathname === homeNav.href || pathname.startsWith('/p/')
+                pathname === homeNav.href || pathname.startsWith('/workspaces/')
                   ? 'bg-sidebar-accent text-sidebar-accent-foreground'
                   : 'text-muted-foreground hover:bg-sidebar-accent/40 hover:text-sidebar-foreground',
               )}
@@ -208,19 +192,18 @@ export function AppSidebar({
               <span>Home</span>
             </Link>
 
-            {/* Pages: recents + stacks + trash */}
             {workspaceId ? (
               <div className="mt-2">
                 <SidebarPagesSection workspaceId={workspaceId} />
               </div>
             ) : null}
 
-            {/* SKAIL Apps */}
             <div className="mt-3">
               <button
                 type="button"
-                onClick={() => setAppsExpanded((v) => !v)}
-                className="flex w-full items-center justify-between gap-1 px-2 py-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground hover:text-sidebar-foreground"
+                onClick={() => setAppsExpanded((value) => !value)}
+                className="flex w-full items-center justify-between gap-1 rounded-md px-2 py-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground hover:bg-sidebar-accent/40 hover:text-sidebar-foreground"
+                aria-expanded={appsExpanded}
               >
                 <span>SKAIL Apps</span>
                 {appsExpanded ? (
@@ -237,7 +220,8 @@ export function AppSidebar({
                     const activePath = href.split('?')[0]
                     const isActive =
                       pathname === activePath ||
-                      (activePath !== '/settings' && pathname.startsWith(activePath))
+                      (activePath !== '/settings' &&
+                        pathname.startsWith(activePath))
                     return (
                       <li key={item.href}>
                         <Link
@@ -269,11 +253,10 @@ export function AppSidebar({
             </div>
           </>
         ) : (
-          // Collapsed: show only icon links to Home + apps
           <ul className="space-y-1">
             <li>
               <Link
-                href={appHref(homeNav.href, workspaceId)}
+                href={homeHref}
                 onClick={onNavigate}
                 className="flex h-8 items-center justify-center rounded-md text-muted-foreground hover:bg-sidebar-accent/40 hover:text-sidebar-foreground"
                 title="Home"

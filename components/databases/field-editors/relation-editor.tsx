@@ -2,10 +2,9 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { CheckIcon, LinkIcon, XIcon } from 'lucide-react'
+import { CheckIcon, LinkIcon } from 'lucide-react'
 
 import { cn } from '@/lib/utils'
-import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
   Popover,
@@ -21,6 +20,7 @@ export type RelationEditorProps = {
   fieldId: string
   isReadOnly?: boolean
   className?: string
+  suppressRefresh?: boolean
 }
 
 type Record = { id: string; title: string | null }
@@ -31,6 +31,7 @@ export function RelationEditor({
   fieldId,
   isReadOnly,
   className,
+  suppressRefresh = false,
 }: RelationEditorProps) {
   const router = useRouter()
   const [open, setOpen] = useState(false)
@@ -100,7 +101,7 @@ export function RelationEditor({
         if (!result.ok) throw new Error(result.error)
         setLinked((current) => [...current, record])
       }
-      router.refresh()
+      if (!suppressRefresh) router.refresh()
     } catch (err) {
       setErrorMessage(err instanceof Error ? err.message : 'Could not update link.')
     } finally {

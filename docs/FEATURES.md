@@ -13,16 +13,18 @@ What it does:
 - Lists workspaces for the current user.
 - Shows a workspace dashboard with counts and recent collections.
 - Supports workspace white-label settings.
+- Uses a persistent workspace shell for app navigation and theme application.
 
 Main files:
 
 - `app/page.tsx`
 - `app/workspaces/new/page.tsx`
-- `app/workspaces/[workspaceId]/page.tsx`
-- `app/workspaces/[workspaceId]/settings/page.tsx`
-- `app/workspaces/actions.ts`
-- `lib/workspaces/queries.ts`
+- `app/(workspace)/workspaces/[workspaceId]/page.tsx`
+- `app/(workspace)/workspaces/[workspaceId]/settings/page.tsx`
+- `app/api/workspaces/shell/route.ts`
+- `components/workspace-shell.tsx`
 - `components/workspaces/*`
+- `lib/workspaces/queries.ts`
 
 Data source:
 
@@ -30,25 +32,11 @@ Data source:
 - `workspace_members`
 - Counts from `collections`, `pages`, `views`, `agent_instances`
 
-User flow:
-
-1. User signs up or logs in.
-2. `/` redirects to first workspace or `/workspaces/new`.
-3. User creates a workspace.
-4. Creator becomes owner.
-5. Dashboard and settings become available.
-
 Limitations:
 
-- No invite/team-management UI.
+- No full team-management UI yet.
 - Roles are strings, not backed by a formal capabilities table.
 - Owner/admin checks are implemented in code.
-
-Suggested next steps:
-
-- Add member invitation and management.
-- Add role capabilities table.
-- Add workspace switching UX beyond the simple dropdown.
 
 ## Auth
 
@@ -61,6 +49,7 @@ What it does:
 - Logout.
 - Auth callback exchange for normal Supabase email confirmation flow.
 - Proxy refresh and redirect for unauthenticated app routes.
+- Invite routes send signed-out users through login/signup and then back to the invite.
 
 Main files:
 
@@ -70,24 +59,90 @@ Main files:
 - `app/auth/callback/route.ts`
 - `proxy.ts`
 - `lib/supabase/proxy.ts`
-- `lib/supabase/server.ts`
-
-Data source:
-
-- Supabase Auth.
-- `workspace_members` for app authorization after auth.
 
 Limitations:
 
 - No password reset UI.
 - No OAuth providers.
-- Auto-confirm signup requires service role key and should be reviewed for production policy.
+- Auto-confirm signup needs a production policy decision.
 
-Suggested next steps:
+## Pages and Stacks
 
-- Add password reset.
-- Add production auth policy around email confirmation.
-- Add clearer auth error states.
+Status: implemented/partial.
+
+What it does:
+
+- Creates pages and stacks.
+- Shows Recents, Stacks, and Private pages in the sidebar/pages home.
+- Stores page documents as BlockNote JSON in `page_documents`.
+- Supports page title, icon, cover, archive/trash, visits/recents, and nested pages.
+- Supports SKAIL custom blocks such as database views, forms, page links, bookmarks, embeds, and mentions.
+- Supports BlockNote multi-column containers.
+- Shared users can see a portal shell instead of the full SKAIL app shell.
+
+Main files:
+
+- `app/(workspace)/pages/page.tsx`
+- `app/(workspace)/pages/trash/page.tsx`
+- `app/(workspace)/p/[pageId]/page.tsx`
+- `app/pages/actions.ts`
+- `components/pages/*`
+- `components/pages/blocks/*`
+- `lib/pages/queries.ts`
+- `lib/pages/access.ts`
+- `lib/pages/document-sources.ts`
+- `lib/pages/portal-tree.ts`
+
+Data source:
+
+- `page_stacks`
+- `pages`
+- `page_documents`
+- `page_visits`
+- `page_forms`
+
+Limitations:
+
+- Some page/sidebar operations are still being polished for instant local updates.
+- BlockNote document schema is active product surface; large schema changes should be migrated carefully.
+- Some custom blocks are partial renderers rather than complete production apps.
+
+## Page and Stack Sharing
+
+Status: implemented/partial.
+
+What it does:
+
+- Creates invite links and public links for page or stack scopes.
+- Stores only hashed share tokens.
+- Supports access levels: `view`, `edit`, `manage`.
+- Accepted signed-in invite users get `page_access_grants`.
+- Public links render read-only portal pages.
+- Share events are recorded.
+- Shared users see only shared page/stack navigation.
+
+Main files:
+
+- `app/share/[token]/page.tsx`
+- `app/invite/[token]/page.tsx`
+- `app/pages/share-actions.ts`
+- `components/pages/share-dialog.tsx`
+- `components/pages/invite-accept-card.tsx`
+- `components/pages/portal-layout.tsx`
+- `lib/pages/access.ts`
+- `lib/pages/portal-tree.ts`
+
+Data source:
+
+- `page_share_links`
+- `page_access_grants`
+- `page_share_events`
+
+Limitations:
+
+- No outbound email invite delivery.
+- Public links are view-only by design.
+- Shared edit users can edit exposed content but cannot open the full database app unless they are workspace members.
 
 ## Databases / Collections
 
@@ -95,21 +150,20 @@ Status: implemented/partial.
 
 What it does:
 
-- Create/rename collections.
-- Create fields/properties.
-- Rename/change field type with warning.
-- Add options to select/status/multi-select fields.
-- Hide system fields from normal users.
-- Create/update basic records.
-- Preserve stable field IDs while names change.
-- Supports `semantic_role`.
+- Creates and renames collections.
+- Creates, renames, archives, restores, and configures fields/properties.
+- Creates, edits, archives, restores, and displays records.
+- Supports stable field IDs and `semantic_role`.
+- Supports local-first editing and archive/undo behavior in many surfaces.
+- Supports file uploads and relation/person/formula/location editor surfaces where implemented.
 
 Main files:
 
-- `app/databases/page.tsx`
+- `app/(workspace)/databases/page.tsx`
+- `app/(workspace)/databases/[collectionId]/page.tsx`
 - `app/databases/actions.ts`
-- `components/properties/property-engine.tsx`
-- `lib/properties/queries.ts`
+- `components/databases/*`
+- `lib/databases/*`
 - `lib/properties/types.ts`
 
 Data source:
@@ -118,104 +172,71 @@ Data source:
 - `collection_fields`
 - `collection_records`
 - `record_values`
+- file/form extension tables from database engine SQL
 
 Limitations:
 
-- File/person/relation/formula types are mostly placeholders.
-- There is no delete UI.
-- Field type changes do not migrate existing values beyond storing JSON.
-- Record editing is basic and inline.
+- Some advanced field types are partial.
+- Schema-level changes still need full refresh/revalidation in places.
+- More RLS/write-policy hardening is needed.
 
-Suggested next steps:
-
-- Add richer field-specific editors.
-- Add relation/person/file implementations.
-- Add import/export and deletion with confirmation.
-
-## Views
+## Saved Views
 
 Status: implemented/partial.
 
 What it does:
 
-- Create views for collections.
-- Rename and duplicate views.
-- Change view type.
-- Configure visible fields.
-- Configure filters and sorts.
-- Configure kanban group field.
-- Configure calendar date field.
-- Shows guided errors when kanban/calendar required field types are missing.
+- Saved views live inside the database app, not a standalone `/views` route.
+- Supports table, kanban, calendar, gallery, list, timeline, map, chart, dashboard, and form-style views.
+- Supports view tabs, filters, advanced filters, sorts, property visibility, search, grouping/date configs, and local embedded overrides.
+- Embedded database blocks store exact source/view identity instead of falling back to the first view.
 
 Main files:
 
-- `app/views/page.tsx`
-- `app/views/actions.ts`
-- `components/views/view-engine.tsx`
-- `lib/views/queries.ts`
+- `components/databases/view-tabs.tsx`
+- `components/databases/database-toolbar.tsx`
+- `components/databases/views/*`
 - `lib/views/types.ts`
+- `lib/views/queries.ts`
+- `app/databases/actions.ts`
 
 Data source:
 
 - `views`
-- Collection/field/record data from the property engine query path.
+- Collection/field/record tables
 
 Limitations:
 
-- Dashboard view type is a placeholder.
-- Filter/sort operations are limited and applied in UI data shaping.
-- No sharing or per-user view permissions.
+- Dashboard/chart/map/timeline surfaces are functional but not final analytics products.
+- Some view style tokens are not fully reflected in every renderer.
+- Public/shared database access is intentionally constrained to embedded blocks/forms.
 
-Suggested next steps:
-
-- Add advanced operators.
-- Add persisted grouping/sizing/display options.
-- Implement dashboard view or rename it as placeholder in UI.
-
-## Layout Builder
+## Embedded Database Blocks
 
 Status: implemented/partial.
 
 What it does:
 
-- Create page/tab.
-- Rename page/tab.
-- Duplicate page with three modes:
-  - layout only
-  - layout plus empty database structure
-  - everything including records
-- Add widgets.
-- Update widget title/source/config.
-- Reorder widgets.
-- Connect widgets to collections or views.
-- Render simple previews for table, kanban, calendar, KPI, text, heading, file links, embed, and activity feed.
+- Renders saved database views inside BlockNote pages.
+- Loads through `/api/pages/databases/shell` with page/source validation.
+- Caches embedded shell data and reuses in-flight requests to avoid refresh storms.
+- Stores page-local overrides for visible fields, filters, sorts, search, and selected source/view.
+- Source switcher lets managers change database/view without duplicating layout controls.
+- Embedded record sheets preserve open state better across block rerenders.
 
 Main files:
 
-- `app/pages/page.tsx`
-- `app/pages/actions.ts`
-- `components/layout-builder/layout-builder.tsx`
-- `lib/layout/queries.ts`
-- `lib/layout/types.ts`
-
-Data source:
-
-- `pages`
-- `widgets`
-- Collection/view tables for connected widgets
-- Style tables for page/widget styling
+- `components/pages/blocks/database-view-block.tsx`
+- `components/pages/blocks/embedded-database.tsx`
+- `components/pages/source-picker-dialog.tsx`
+- `components/databases/database-shell.tsx`
+- `components/databases/database-toolbar.tsx`
+- `app/api/pages/databases/shell/route.ts`
 
 Limitations:
 
-- No drag-and-drop; reorder uses up/down actions.
-- Some widget types are display placeholders.
-- Page nesting exists in schema but is not a complete UI.
-
-Suggested next steps:
-
-- Add drag-and-drop.
-- Add routeable page preview/client portal rendering.
-- Add widget-specific config forms.
+- Gallery card record-opening inside page canvas needs more manual QA.
+- Some schema/global view mutations still use route refresh by design.
 
 ## Theme / Styling
 
@@ -223,39 +244,27 @@ Status: implemented/partial.
 
 What it does:
 
-- Save shared workspace theme tokens.
-- Save personal theme overrides.
-- Set mode, fonts, accent/background/card/button/link/highlight colors.
-- Rename/style pages.
-- Style widgets and views with safe option tokens.
+- Saves shared workspace theme tokens.
+- Saves personal theme overrides.
+- Supports light, dark, and system mode.
+- Supports reset-to-default tokens.
+- Styles pages, widgets, and views through safe token options.
 - Shows contrast warnings.
-- Applies workspace theme to `DashboardLayout`.
+- Applies theme tokens through the app shell and page/portal surfaces.
 
 Main files:
 
-- `app/settings/theme/page.tsx`
+- `app/(workspace)/settings/theme/page.tsx`
 - `app/settings/theme/actions.ts`
 - `components/theme/theme-styling-engine.tsx`
+- `components/theme-provider.tsx`
+- `components/theme-mode-toggle.tsx`
 - `lib/theme/*`
-
-Data source:
-
-- `themes`
-- `page_style_settings`
-- `widget_style_settings`
-- `view_style_settings`
 
 Limitations:
 
-- Theme application is scoped to dashboard shell and routed workspace surfaces.
-- Some view style settings are saved but not fully reflected in every preview.
+- Some saved view styles are not rendered everywhere.
 - No arbitrary CSS/JS by design.
-
-Suggested next steps:
-
-- Audit every widget/view renderer for style token application.
-- Add accessible preset palettes.
-- Add theme preview history or reset controls.
 
 ## AI Builder
 
@@ -272,33 +281,19 @@ What it does:
 
 Main files:
 
-- `app/ai-builder/page.tsx`
+- `app/(workspace)/ai-builder/page.tsx`
 - `components/ai-builder/ai-builder-chat.tsx`
 - `app/api/ai-builder/chat/route.ts`
 - `app/api/ai-builder/apply/route.ts`
 - `app/api/ai-builder/undo/route.ts`
 - `lib/ai-builder/*`
-- `ai_builder_json_contract.json` is referenced by project context but the runtime contract currently lives in `lib/ai-builder/contract.ts`.
-
-Data source:
-
-- `ai_builder_previews`
-- Existing workspace data from layout builder context
-- Gemini API
 
 Limitations:
 
 - Apply supports a defined subset of actions.
-- Layout reordering from AI is preview-only.
 - No streaming.
 - No cost logging.
 - No model/provider abstraction.
-
-Suggested next steps:
-
-- Add preview diff rendering.
-- Expand supported actions carefully.
-- Add audit trail and cost/latency metrics.
 
 ## Templates
 
@@ -310,23 +305,13 @@ What it does:
 
 Main files:
 
-- `app/templates/page.tsx`
+- `app/(workspace)/templates/page.tsx`
 - `sql/seed_templates_v1.sql`
-
-Data source:
-
-- Current route uses static array.
-- SQL seeds `templates`, but UI does not read it.
 
 Limitations:
 
-- No template installer.
-- No workspace-specific template loading.
-
-Suggested next steps:
-
-- Replace static cards with Supabase `templates`.
-- Implement installer with preview/confirmation.
+- No real template installer.
+- UI does not read seeded `templates`.
 
 ## Agents
 
@@ -334,32 +319,19 @@ Status: placeholder.
 
 What it does:
 
-- Shows static agent library.
-- Allows local instruction editing UI.
+- Shows a placeholder agent library and setup surface.
 
 Main files:
 
-- `app/agents/page.tsx`
-- `lib/data.ts`
+- `app/(workspace)/agents/page.tsx`
 - `sql/supabase_schema_v1.sql`
 - `sql/seed_templates_v1.sql`
 
-Data source:
-
-- Current route uses `lib/data.ts`.
-- SQL has `agent_templates`, `agent_instances`, and `agent_activity_logs`.
-
 Limitations:
 
-- No persisted agent instances.
+- No persisted agent instances in UI.
 - No AI execution.
-- No managed/internal visibility enforcement in UI.
-
-Suggested next steps:
-
-- Load `agent_templates` and `agent_instances`.
-- Add internal/client-facing visibility rules.
-- Add execution logs.
+- No managed/internal visibility enforcement beyond route concept.
 
 ## Automations
 
@@ -367,26 +339,16 @@ Status: placeholder.
 
 What it does:
 
-- Shows static automation cards and stats.
+- Shows static automation cards and status controls.
 
 Main files:
 
-- `app/automations/page.tsx`
-
-Data source:
-
-- Static array in route file.
+- `app/(workspace)/automations/page.tsx`
 
 Limitations:
 
 - No persistence.
-- Switches and buttons are not wired.
 - No n8n integration yet.
-
-Suggested next steps:
-
-- Add automation tables or use `webhook_events` plus n8n config.
-- Add signed webhook receiver.
 
 ## Portal Preview
 
@@ -394,26 +356,16 @@ Status: mock.
 
 What it does:
 
-- Renders a static Acme Corp portal preview with checklist, stats, activity, and quick links.
+- Renders a static portal preview.
 
 Main files:
 
-- `app/portal-preview/page.tsx`
-- `lib/data.ts`
-
-Data source:
-
-- Static `activityFeed` and `onboardingChecklist`.
+- `app/(workspace)/portal-preview/page.tsx`
 
 Limitations:
 
-- Not tied to workspace, pages, widgets, or theme.
-- Not a real client-facing portal route.
-
-Suggested next steps:
-
-- Render workspace pages with portal-safe visibility.
-- Apply workspace white-label and theme settings.
+- Not tied to real published pages/stacks yet.
+- Sharing routes are realer than this preview route.
 
 ## Supabase Integration
 
@@ -423,7 +375,7 @@ What it does:
 
 - Provides browser, server, admin, proxy, and stateless auth clients.
 - Uses generated/manual database types.
-- Uses RLS read policies plus server-side service-role writes.
+- Uses RLS read/share policies plus server-side service-role writes.
 
 Main files:
 
@@ -433,15 +385,9 @@ Main files:
 
 Limitations:
 
-- No migration system is configured.
-- Most write RLS policies are deferred.
-- `database.types.ts` must be kept in sync manually or regenerated.
-
-Suggested next steps:
-
-- Add a migration workflow.
-- Add role capability tables and write policies.
-- Add Supabase type generation instructions.
+- No formal migration runner is configured.
+- Most write RLS policies are still deferred to server-side validation.
+- `database.types.ts` must be kept in sync.
 
 ## n8n Placeholders
 
@@ -453,12 +399,6 @@ Current state:
 - `webhook_events` table exists.
 - No route handler currently receives signed n8n webhooks.
 
-Suggested next steps:
-
-- Add `/api/n8n/webhook` or similar route.
-- Verify signatures server-side.
-- Store events in `webhook_events`.
-
 ## Google Drive and Email Placeholders
 
 Status: planned/future.
@@ -468,9 +408,3 @@ Current state:
 - `.env.example` includes Google client/picker variables.
 - `.env.example` includes email provider variables.
 - No code currently consumes these variables.
-
-Suggested next steps:
-
-- Add integration-specific backend routes.
-- Store provider configuration securely.
-- Keep provider secrets server-side only.

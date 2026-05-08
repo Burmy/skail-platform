@@ -4,7 +4,7 @@ This document describes the tables present in `sql/*.sql` and how the current ap
 
 ## Core Rule
 
-Every tenant-owned table should include `workspace_id`. Current tenant-owned tables do this:
+Every tenant-owned table should include `workspace_id`. Current tenant-owned tables include:
 
 - `workspace_members`
 - `collections`
@@ -14,12 +14,24 @@ Every tenant-owned table should include `workspace_id`. Current tenant-owned tab
 - `views`
 - `pages`
 - `widgets`
+- `page_stacks`
+- `page_documents`
+- `page_visits`
+- `page_forms`
+- `page_form_submissions`
+- `page_share_links`
+- `page_access_grants`
+- `page_share_events`
+- `themes`
+- `page_style_settings`
+- `widget_style_settings`
+- `view_style_settings`
 - `ai_builder_previews`
 - `templates` when workspace-specific
 - `agent_instances`
 - `agent_activity_logs`
 - `webhook_events`
-- theme/style tables
+- database engine extension tables
 
 `agent_templates` is platform-level and does not carry `workspace_id`.
 
@@ -27,13 +39,16 @@ Every tenant-owned table should include `workspace_id`. Current tenant-owned tab
 
 | File | Purpose | Notes |
 | --- | --- | --- |
-| `sql/supabase_schema_v1.sql` | Foundation schema. | Creates core workspace, database, page, AI preview, template, agent, and webhook tables. |
-| `sql/supabase_rls_v1.sql` | RLS policies. | Enables RLS and adds read policies based on active workspace membership. Writes are intentionally mostly handled server-side with service role after validation. |
+| `sql/supabase_schema_v1.sql` | Foundation schema. | Creates core workspace, database, page/widget, AI preview, template, agent, and webhook tables. |
+| `sql/supabase_rls_v1.sql` | Baseline RLS policies. | Enables RLS and read policies based on active workspace membership. Writes are mostly guarded in server code. |
 | `sql/supabase_theme_styling_v1.sql` | Theme/style module schema. | Adds `themes`, `page_style_settings`, `widget_style_settings`, and `view_style_settings`. |
-| `sql/supabase_ai_builder_v1.sql` | AI Builder module patch. | Defines/updates `ai_builder_previews` and its policies. This overlaps with `supabase_schema_v1.sql`. |
-| `sql/seed_templates_v1.sql` | Seed data. | Inserts platform templates and agent templates. Visible template/agent routes do not currently read these rows. |
+| `sql/supabase_ai_builder_v1.sql` | AI Builder module patch. | Defines/updates `ai_builder_previews` and policies. Overlaps with `supabase_schema_v1.sql`. |
+| `sql/supabase_pages_engine_v1.sql` | Notion-like page engine. | Adds stacks, documents, page visits, page forms, submissions, archive metadata, and page indexes. |
+| `sql/supabase_page_sharing_v1.sql` | Page/stack sharing. | Adds public/invite links, accepted grants, audit events, sharing helpers, and sharing-aware RLS policies. |
+| `sql/supabase_database_engine_v2.sql` | Database engine extensions. | Adds relation/file/form throttle tables and view/config indexes used by newer database views. |
+| `sql/seed_templates_v1.sql` | Seed data. | Inserts platform templates and agent templates. Visible template/agent routes do not fully read these rows yet. |
 
-## Tables
+## Workspace Tables
 
 ### `workspaces`
 
@@ -41,18 +56,13 @@ Tenant root table.
 
 Key columns:
 
-| Column | Purpose |
-| --- | --- |
-| `id` | Stable workspace UUID. |
-| `name` | User-facing workspace name. |
-| `plan_key` | Plan marker, default `diy`. |
-| `white_label_level` | White-label capability level. |
-| `brand_name`, `brand_logo_url`, `accent_color` | Brand display fields. |
-| `portal_subdomain`, `custom_domain` | Portal address settings, unique. |
-| `hide_skail_branding` | Client-facing branding toggle. |
-| `email_from_name`, `email_from_address` | Future branded email identity fields. |
-
-Used by workspace dashboard, workspace settings, sidebar branding, theme scoping, and all workspace ownership checks.
+- `id`: stable workspace UUID.
+- `name`: user-facing workspace name.
+- `plan_key`: plan marker.
+- `white_label_level`, `brand_name`, `brand_logo_url`, `accent_color`: white-label fields.
+- `portal_subdomain`, `custom_domain`: portal address settings.
+- `hide_skail_branding`: client-facing branding toggle.
+- `email_from_name`, `email_from_address`: future branded email identity fields.
 
 ### `workspace_members`
 
@@ -60,16 +70,14 @@ Connects Supabase auth users to workspaces.
 
 Key columns:
 
-| Column | Purpose |
-| --- | --- |
-| `workspace_id` | Tenant boundary. |
-| `user_id` | Supabase Auth user ID. |
-| `role_key` | Hardcoded role string such as `owner`, `admin`, `designer`, `editor`, `member`. |
-| `status` | Expected active value is `active`. |
+- `workspace_id`
+- `user_id`
+- `role_key`: currently strings such as `owner`, `admin`, `designer`, `editor`, `member`.
+- `status`: active membership is expected to be `active`.
 
 Unique on `(workspace_id, user_id)`.
 
-Current role logic is implemented in TypeScript, not a role capability table.
+## Database Tables
 
 ### `collections`
 
@@ -77,14 +85,11 @@ Workspace-scoped database definitions.
 
 Key columns:
 
-| Column | Purpose |
-| --- | --- |
-| `workspace_id` | Tenant boundary. |
-| `name`, `description`, `icon` | User-facing collection metadata. |
-| `is_locked` | Reserved/used to prevent some changes. |
-| `created_by` | Auth user who created it. |
-
-Collections have fields and records.
+- `workspace_id`
+- `name`, `description`, `icon`
+- `is_locked`
+- `archived_at` where database engine migrations are applied
+- `created_by`
 
 ### `collection_fields`
 
@@ -92,28 +97,20 @@ Schema/properties for a collection.
 
 Key columns:
 
-| Column | Purpose |
-| --- | --- |
-| `workspace_id` | Tenant boundary. |
-| `collection_id` | Parent collection. |
-| `name` | User-facing field name. |
-| `field_type` | One of the V1 property types in `lib/properties/types.ts`. |
-| `semantic_role` | Optional role such as `title` or `created_at`. |
-| `is_required`, `is_locked`, `is_system` | Field behavior flags. |
-| `options_json` | Select/status/multi-select option data. |
-| `settings_json` | Reserved field settings. |
-| `position` | Field ordering. |
+- `workspace_id`
+- `collection_id`
+- `name`
+- `field_type`
+- `semantic_role`
+- `is_required`, `is_locked`, `is_system`
+- `options_json`
+- `settings_json`
+- `position`
+- `archived_at` where database engine migrations are applied
 
-Supported property types:
+Supported V1/V2 property types include:
 
-`text`, `long_text`, `number`, `currency`, `select`, `multi_select`, `status`, `date`, `checkbox`, `url`, `email`, `phone`, `file`, `person`, `relation`, `formula_placeholder`.
-
-New collections create two system fields:
-
-- `Record title` with `semantic_role = title`
-- `Created at` with `semantic_role = created_at`
-
-Normal users do not see system fields in the database engine; owners/admins can.
+`text`, `long_text`, `number`, `currency`, `select`, `multi_select`, `status`, `date`, `checkbox`, `url`, `email`, `phone`, `file`, `person`, `relation`, `formula_placeholder`, and newer view-specific helpers.
 
 ### `collection_records`
 
@@ -121,12 +118,11 @@ Rows/items in a collection.
 
 Key columns:
 
-| Column | Purpose |
-| --- | --- |
-| `workspace_id` | Tenant boundary. |
-| `collection_id` | Parent collection. |
-| `title` | Record display title. |
-| `created_by` | Auth user who created it. |
+- `workspace_id`
+- `collection_id`
+- `title`
+- `created_by`
+- `archived_at` where database engine migrations are applied
 
 ### `record_values`
 
@@ -134,12 +130,10 @@ Field values for records.
 
 Key columns:
 
-| Column | Purpose |
-| --- | --- |
-| `workspace_id` | Tenant boundary. |
-| `record_id` | Parent record. |
-| `field_id` | Field being stored. |
-| `value_json` | JSON object, usually `{ "value": ... }`. |
+- `workspace_id`
+- `record_id`
+- `field_id`
+- `value_json`, usually `{ "value": ... }`
 
 Unique on `(record_id, field_id)`.
 
@@ -149,48 +143,169 @@ Saved views over collections.
 
 Key columns:
 
-| Column | Purpose |
-| --- | --- |
-| `workspace_id` | Tenant boundary. |
-| `collection_id` | Collection being viewed. |
-| `name` | User-facing view name. |
-| `view_type` | `table`, `kanban`, `calendar`, or `dashboard`. |
-| `config_json` | Visible fields, filters, sorts, kanban/calendar field IDs. |
-| `is_locked` | Prevents some updates. |
+- `workspace_id`
+- `collection_id`
+- `name`
+- `view_type`
+- `config_json`
+- `is_locked`
+- `archived_at` where database engine migrations are applied
 
-`config_json` is parsed by `lib/views/types.ts`.
+Views are now managed inside `/databases/[collectionId]`, not through a standalone `/views` route.
+
+## Database Engine Extension Tables
+
+### `collection_relations`
+
+Defines relation metadata between collections.
+
+### `collection_record_links`
+
+Stores record-to-record relation links.
+
+### `collection_files`
+
+Stores uploaded file metadata for file fields. Actual bytes are stored in Supabase Storage.
+
+### `form_submission_throttle`
+
+Tracks public form submission throttling.
+
+## Page Tables
 
 ### `pages`
 
-Workspace page/tab records.
+Workspace page records.
 
 Key columns:
 
-| Column | Purpose |
-| --- | --- |
-| `workspace_id` | Tenant boundary. |
-| `parent_page_id` | Optional nested page relation. Current UI is mostly flat. |
-| `title`, `icon` | Page display metadata. |
-| `is_locked` | Prevents some updates. |
-| `visibility_scope` | Defaults to `workspace`; future portal/client scopes can use this. |
-| `position` | Ordering. |
+- `workspace_id`
+- `stack_id`
+- `parent_page_id`
+- `title`, `icon`, `cover_image_url`
+- `is_locked`
+- `visibility_scope`
+- `position`
+- `archived_at`
 
 ### `widgets`
 
-Widgets on pages.
+Legacy page/widget layout table from the earlier layout builder.
+
+Current state:
+
+- Still exists in schema and some theme/style surfaces.
+- New Notion-like pages primarily use `page_documents`.
+- Keep this table until all old widget assumptions are removed or migrated.
+
+### `page_stacks`
+
+Groups pages in the sidebar.
 
 Key columns:
 
-| Column | Purpose |
-| --- | --- |
-| `workspace_id` | Tenant boundary. |
-| `page_id` | Parent page. |
-| `widget_type` | One of `text`, `heading`, `table`, `kanban`, `calendar`, `kpi_card`, `file_links`, `embed`, `activity_feed`. |
-| `title` | Widget title. |
-| `data_source_type` | `collection`, `view`, or null. |
-| `data_source_id` | UUID of collection or view. |
-| `config_json` | Widget-specific config. |
-| `position` | Ordering within page. |
+- `workspace_id`
+- `name`
+- `position`
+- `archived_at`
+
+### `page_documents`
+
+Stores one BlockNote document per page.
+
+Key columns:
+
+- `workspace_id`
+- `page_id`
+- `content_json`
+- `version`
+- `updated_by`
+
+### `page_visits`
+
+Stores per-user recent page activity.
+
+Key columns:
+
+- `workspace_id`
+- `user_id`
+- `page_id`
+- `last_opened_at`
+
+### `page_forms` and `page_form_submissions`
+
+Support page-level form blocks and submissions.
+
+Current state:
+
+- Present for page form behavior.
+- Public form routing also uses database form views under `/f/[slug]`.
+
+## Page Sharing Tables
+
+### `page_share_links`
+
+Stores public and invite links.
+
+Key columns:
+
+- `workspace_id`
+- `scope_type`: `page` or `stack`
+- `scope_id`
+- `link_type`: `invite` or `public`
+- `access_level`: `view`, `edit`, or `manage`
+- `token_hash`: hashed token only; raw tokens are not stored
+- `created_by`
+- `revoked_at`
+- `last_used_at`
+
+### `page_access_grants`
+
+Stores accepted signed-in user access.
+
+Key columns:
+
+- `workspace_id`
+- `user_id`
+- `scope_type`
+- `scope_id`
+- `access_level`
+- `source_link_id`
+- `granted_by`
+- `accepted_at`
+- `revoked_at`
+
+### `page_share_events`
+
+Audit log for link creation, invite acceptance, revoke, and permission changes.
+
+## Theme and Styling Tables
+
+### `themes`
+
+Stores shared workspace themes and personal overrides.
+
+Key columns:
+
+- `workspace_id`
+- `user_id` for personal themes
+- `mode`
+- `tokens_json`
+- `is_default`
+
+### `page_style_settings`
+
+Safe page/tab style settings, including background, spacing/density, icons, covers, and page image fields where supported.
+
+### `widget_style_settings`
+
+Safe style tokens for legacy widgets.
+
+### `view_style_settings`
+
+Safe style tokens for saved database views.
+
+## AI Builder Tables
 
 ### `ai_builder_previews`
 
@@ -198,177 +313,74 @@ Stores AI Builder generated plans before and after apply.
 
 Key columns:
 
-| Column | Purpose |
-| --- | --- |
-| `workspace_id` | Tenant boundary. |
-| `created_by` | Auth user who generated the preview. |
-| `user_prompt` | User prompt text. |
-| `status` | `preview`, `applied`, `undone`, or `failed`. |
-| `intent`, `summary`, `risk_level` | Human-readable preview metadata. |
-| `requires_confirmation` | Always normalized to true by current code. |
-| `plan_json` | Validated AI plan JSON. |
-| `context_json` | Workspace context sent to AI. |
-| `applied_operations_json` | Operations recorded for undo. |
+- `workspace_id`
+- `created_by`
+- `user_prompt`
+- `status`
+- `intent`, `summary`, `risk_level`
+- `requires_confirmation`
+- `plan_json`
+- `context_json`
+- `applied_operations_json`
 
 Used by `/api/ai-builder/chat`, `/apply`, and `/undo`.
 
+## Templates and Agents
+
 ### `templates`
 
-Platform or workspace templates.
-
-Key columns:
-
-| Column | Purpose |
-| --- | --- |
-| `workspace_id` | Nullable; null means platform template. |
-| `name` | Template name. |
-| `template_type` | Example values: `workspace`, `portal`. |
-| `config_json` | Template config payload. |
-| `is_platform_template` | Platform-level template marker. |
-
-Seeded by `seed_templates_v1.sql`. The `/templates` UI currently uses hardcoded route data instead of this table.
+Platform or workspace templates. Current template route is still static and does not fully read this table.
 
 ### `agent_templates`
 
-Platform agent definitions.
-
-Key columns:
-
-| Column | Purpose |
-| --- | --- |
-| `name`, `description` | Agent metadata. |
-| `locked_rules` | Non-editable safety/rule text. |
-| `default_instructions` | Starting instructions. |
-| `allowed_actions_json` | Allowed action keys. |
-| `is_platform_agent` | Platform-level marker. |
-
-Seeded by `seed_templates_v1.sql`. The `/agents` UI currently uses `lib/data.ts`.
+Platform-level agent template definitions.
 
 ### `agent_instances`
 
-Workspace-specific agent instances.
-
-Key columns:
-
-| Column | Purpose |
-| --- | --- |
-| `workspace_id` | Tenant boundary. |
-| `agent_template_id` | Optional template source. |
-| `display_name` | Workspace-facing agent name. |
-| `user_instructions` | Workspace-specific instructions. |
-| `is_enabled` | Enabled flag. |
-
-Currently only counted on the workspace dashboard.
+Workspace-scoped agent instances.
 
 ### `agent_activity_logs`
 
-Workspace-scoped activity log for future agent events.
+Workspace-scoped agent activity log rows.
 
-Key columns:
+Current visible agent route is a placeholder.
 
-| Column | Purpose |
-| --- | --- |
-| `workspace_id` | Tenant boundary. |
-| `agent_instance_id` | Agent that produced the event. |
-| `event_type`, `summary` | Event metadata. |
-| `payload_json` | Raw event payload. |
-| `visibility_scope` | Defaults to `internal`. |
-
-No visible route currently writes or reads this table.
+## Automation / Webhook Tables
 
 ### `webhook_events`
 
-Workspace-scoped webhook inbox for future n8n integrations.
+Intended for signed automation/webhook events such as n8n.
 
-Key columns:
+Current state:
 
-| Column | Purpose |
-| --- | --- |
-| `workspace_id` | Tenant boundary. |
-| `source` | External source, expected future value includes n8n. |
-| `event_type` | Event classification. |
-| `payload_json` | Raw payload. |
-| `status` | Defaults to `received`. |
+- Table exists.
+- No signed n8n receiver route exists.
 
-No n8n receiver is implemented yet.
+## Workspace Scoping Rules
 
-## Theme and Styling Tables
-
-### `themes`
-
-Workspace theme tokens.
-
-Key columns:
-
-| Column | Purpose |
-| --- | --- |
-| `workspace_id` | Tenant boundary. |
-| `name` | Theme display name. |
-| `mode` | `light`, `dark`, or `system`. |
-| `is_default` | Shared workspace default marker. |
-| `tokens_json` | Safe theme token object. |
-
-The app supports shared and personal token scopes inside `tokens_json`.
-
-### `page_style_settings`
-
-Per-page style settings.
-
-Key columns:
-
-| Column | Purpose |
-| --- | --- |
-| `page_id` | Unique page relation. |
-| `cover_image_url` | Safe URL string. |
-| `icon_type`, `icon_value` | Page icon metadata. |
-| `background_json`, `typography_json`, `layout_style_json` | Safe style objects. |
-
-### `widget_style_settings`
-
-Per-widget style settings.
-
-Key columns:
-
-| Column | Purpose |
-| --- | --- |
-| `widget_id` | Unique widget relation. |
-| `style_json` | Safe widget style object. |
-
-### `view_style_settings`
-
-Per-view style settings.
-
-Key columns:
-
-| Column | Purpose |
-| --- | --- |
-| `view_id` | Unique view relation. |
-| `style_json` | Safe view style object. |
+- Any ID passed into a mutation must be verified against the active `workspace_id`.
+- Views must belong to the same collection/workspace.
+- Records must belong to the same collection/workspace.
+- Page documents must belong to the requested page/workspace.
+- Embedded database mutations by shared users must verify that the database source is embedded in the page document.
+- Public anonymous access should go through token-validated server routes, not broad public write RLS.
 
 ## RLS and Security Notes
 
-- `supabase_rls_v1.sql` enables RLS on foundation tables.
-- `supabase_theme_styling_v1.sql` enables RLS on theme/style tables.
-- Read policies allow active workspace members to select workspace data.
-- `templates` are readable when `workspace_id is null` or user is a workspace member.
-- AI Builder preview insert policy requires active workspace membership and `created_by = auth.uid()`.
-- Write policies for most domain tables are not implemented in SQL yet. The app writes from trusted server code with the service role key after membership/role checks.
-- The helper `public.is_workspace_member` is `security definer` and lives in the public schema. This is functional but should be reviewed before production hardening.
+- Baseline RLS policies are read-oriented for workspace membership.
+- Page sharing SQL adds helper functions/policies for page/share reads.
+- Most writes still use the service role after server-side validation.
+- Service role must remain server-only.
+- Share links store token hashes only.
 
-## Indexes, Constraints, and Follow-ups
+## Seed Data Notes
 
-Existing constraints:
+`sql/seed_templates_v1.sql` seeds platform templates and agent templates. Current UI routes for templates and agents still use placeholder/static data instead of these tables.
 
-- Primary keys on all tables.
-- `workspace_members` unique on `(workspace_id, user_id)`.
-- `record_values` unique on `(record_id, field_id)`.
-- Style setting tables unique on their target ID.
-- Workspace `portal_subdomain` and `custom_domain` unique.
+## Known Follow-ups
 
-Potential follow-ups:
-
-- Add indexes for common lookups: `workspace_id`, `(workspace_id, collection_id)`, `(workspace_id, page_id)`, `(workspace_id, user_id)`.
-- Add stricter check constraints for enum-like fields such as `role_key`, `field_type`, `view_type`, `widget_type`, `visibility_scope`, and `template_type`.
-- Add write RLS policies once role capabilities are formalized.
-- Resolve duplicate `ai_builder_previews` definitions between schema and module SQL.
-- Add migrations instead of only SQL editor scripts once schema stabilizes.
+- Add formal migration workflow.
+- Regenerate `lib/supabase/database.types.ts` after schema changes.
+- Complete write RLS policies.
+- Centralize role/capability checks.
+- Retire or migrate legacy `widgets` if the BlockNote page model fully replaces it.

@@ -9,11 +9,12 @@ import {
 } from 'react'
 import { useRouter } from 'next/navigation'
 import { useTheme } from 'next-themes'
+import { en as coreEn } from '@blocknote/core/locales'
+import { locales as multiColumnLocales } from '@blocknote/xl-multi-column'
 import {
   AtSignIcon,
   BookmarkIcon,
   Code2Icon,
-  Columns3Icon,
   LinkIcon,
   Loader2Icon,
   RefreshCwIcon,
@@ -38,15 +39,6 @@ import {
 } from './source-picker-dialog'
 
 type SaveStatus = 'idle' | 'saving' | 'saved' | 'error' | 'conflict'
-type BlockSpan = 1 | 2 | 3
-type PageLayoutMetadata = {
-  blocks: Record<string, { span: BlockSpan }>
-}
-type SelectedBlockState = {
-  id: string
-  type: string
-  rect: { top: number; left: number; right: number } | null
-}
 type PasteMenuState = {
   url: string
   blockId: string
@@ -69,7 +61,6 @@ type LinkPreview = {
 type EditorBlockLike = {
   id: string
   type: string
-  children?: EditorBlockLike[]
 }
 
 type EditorRuntime = {
@@ -102,12 +93,7 @@ export function PageEditor({
   const versionRef = useRef(initialVersion)
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const editorHostRef = useRef<HTMLDivElement | null>(null)
-  const layoutRef = useRef<PageLayoutMetadata>(parseInitialLayout(initialContent))
   const [status, setStatus] = useState<SaveStatus>('idle')
-  const [layout, setLayout] = useState<PageLayoutMetadata>(() =>
-    parseInitialLayout(initialContent),
-  )
-  const [selectedBlock, setSelectedBlock] = useState<SelectedBlockState | null>(null)
   const [pasteMenu, setPasteMenu] = useState<PasteMenuState | null>(null)
   const [pasteBusy, setPasteBusy] = useState<PasteChoice | null>(null)
 
@@ -179,6 +165,10 @@ export function PageEditor({
   // Build editor with SKAIL schema + initial content
   const editor = useCreateBlockNote({
     schema: skailBlockSchema,
+    dictionary: {
+      ...coreEn,
+      multi_column: multiColumnLocales.en,
+    },
     initialContent: parseInitial(initialContent),
     uploadFile: async (file) => uploadPageAsset(workspaceId, pageId, file),
   })
@@ -192,7 +182,6 @@ export function PageEditor({
         pageId,
         contentJson: {
           blocks: document,
-          layout: layoutRef.current,
         } as never,
         expectedVersion: versionRef.current,
         clientRequestId,
@@ -225,7 +214,6 @@ export function PageEditor({
   useEffect(() => {
     if (readOnly) return
     const off = editor.onChange(() => {
-      applyBlockLayoutAttributes(editorHostRef.current, editor.document, layoutRef.current)
       scheduleSave()
     })
     return () => {
@@ -233,47 +221,6 @@ export function PageEditor({
       if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current)
     }
   }, [editor, readOnly, scheduleSave])
-
-  useEffect(() => {
-    layoutRef.current = layout
-    const frame = window.requestAnimationFrame(() => {
-      applyBlockLayoutAttributes(editorHostRef.current, editor.document, layout)
-    })
-    return () => window.cancelAnimationFrame(frame)
-  }, [editor, layout])
-
-  function handleSelectionChange() {
-    const runtime = editor as unknown as EditorRuntime
-    const block = runtime.getTextCursorPosition?.().block
-    if (!block?.id) {
-      setSelectedBlock(null)
-      return
-    }
-    const rect = runtime.getSelectionBoundingBox?.()
-    setSelectedBlock({
-      id: block.id,
-      type: block.type,
-      rect: rect
-        ? { top: rect.top, left: rect.left, right: rect.right }
-        : null,
-    })
-  }
-
-  function updateBlockSpan(blockId: string, blockType: string, span: BlockSpan) {
-    const nextSpan = blockType === 'database_view' && span === 1 ? 2 : span
-    setLayout((current) => {
-      const next = {
-        ...current,
-        blocks: {
-          ...current.blocks,
-          [blockId]: { span: nextSpan },
-        },
-      }
-      layoutRef.current = next
-      return next
-    })
-    scheduleSave(250)
-  }
 
   function handlePasteCapture(event: ReactClipboardEvent<HTMLDivElement>) {
     if (readOnly) return
@@ -385,7 +332,7 @@ export function PageEditor({
 
       <div
         ref={editorHostRef}
-        className="skail-page-editor-grid"
+        className="skail-page-editor"
         onPasteCapture={handlePasteCapture}
       >
         <BlockNoteView
@@ -393,7 +340,6 @@ export function PageEditor({
           editable={!readOnly}
           slashMenu={false}
           theme={blockNoteTheme}
-          onSelectionChange={handleSelectionChange}
         >
           <SuggestionMenuController
             triggerCharacter="/"
@@ -410,16 +356,6 @@ export function PageEditor({
           />
         </BlockNoteView>
       </div>
-
-      {!readOnly && selectedBlock ? (
-        <BlockWidthMenu
-          block={selectedBlock}
-          span={layout.blocks[selectedBlock.id]?.span ?? 3}
-          onChange={(span) =>
-            updateBlockSpan(selectedBlock.id, selectedBlock.type, span)
-          }
-        />
-      ) : null}
 
       {pasteMenu ? (
         <PasteAsMenu
@@ -438,46 +374,6 @@ export function PageEditor({
         initialTab="view"
         requestedViewType={pickerRequestedViewType}
       />
-    </div>
-  )
-}
-
-function BlockWidthMenu({
-  block,
-  span,
-  onChange,
-}: {
-  block: SelectedBlockState
-  span: BlockSpan
-  onChange: (span: BlockSpan) => void
-}) {
-  const isDatabase = block.type === 'database_view'
-  const left = block.rect
-    ? clamp(block.rect.right - 214, 16, window.innerWidth - 232)
-    : 24
-  const top = block.rect ? clamp(block.rect.top - 42, 56, window.innerHeight - 64) : 72
-
-  return (
-    <div
-      className="fixed z-40 flex items-center gap-1 rounded-md border bg-popover p-1 text-xs text-popover-foreground shadow-md"
-      style={{ left, top }}
-      aria-label="Block width"
-    >
-      <Columns3Icon className="mx-1 size-3.5 text-muted-foreground" />
-      {([1, 2, 3] as const).map((value) => (
-        <Button
-          key={value}
-          type="button"
-          size="sm"
-          variant={span === value ? 'secondary' : 'ghost'}
-          className="h-7 px-2 text-xs"
-          disabled={isDatabase && value === 1}
-          onMouseDown={(event) => event.preventDefault()}
-          onClick={() => onChange(value)}
-        >
-          {value === 1 ? '1/3' : value === 2 ? '2/3' : 'Full'}
-        </Button>
-      ))}
     </div>
   )
 }
@@ -627,63 +523,6 @@ function parseInitial(content: unknown) {
     }
   }
   return undefined
-}
-
-function parseInitialLayout(content: unknown): PageLayoutMetadata {
-  if (
-    content &&
-    typeof content === 'object' &&
-    !Array.isArray(content) &&
-    'layout' in content
-  ) {
-    const layout = (content as { layout?: unknown }).layout
-    if (
-      layout &&
-      typeof layout === 'object' &&
-      !Array.isArray(layout) &&
-      'blocks' in layout
-    ) {
-      const rawBlocks = (layout as { blocks?: unknown }).blocks
-      if (rawBlocks && typeof rawBlocks === 'object' && !Array.isArray(rawBlocks)) {
-        const blocks: PageLayoutMetadata['blocks'] = {}
-        for (const [blockId, value] of Object.entries(rawBlocks)) {
-          if (!value || typeof value !== 'object' || Array.isArray(value)) continue
-          const span = (value as { span?: unknown }).span
-          if (span === 1 || span === 2 || span === 3) {
-            blocks[blockId] = { span }
-          }
-        }
-        return { blocks }
-      }
-    }
-  }
-  return { blocks: {} }
-}
-
-function applyBlockLayoutAttributes(
-  host: HTMLDivElement | null,
-  document: EditorBlockLike[],
-  layout: PageLayoutMetadata,
-) {
-  if (!host) return
-  const blockTypes = new Map<string, string>()
-  collectBlockTypes(document, blockTypes)
-  host.querySelectorAll<HTMLElement>('.bn-block-outer[data-id]').forEach((node) => {
-    const blockId = node.dataset.id
-    if (!blockId) return
-    const blockType = blockTypes.get(blockId) ?? ''
-    const rawSpan = layout.blocks[blockId]?.span ?? 3
-    const span = blockType === 'database_view' && rawSpan === 1 ? 2 : rawSpan
-    node.dataset.skailSpan = String(span)
-    node.dataset.skailBlockType = blockType
-  })
-}
-
-function collectBlockTypes(blocks: EditorBlockLike[], map: Map<string, string>) {
-  for (const block of blocks) {
-    map.set(block.id, block.type)
-    if (Array.isArray(block.children)) collectBlockTypes(block.children, map)
-  }
 }
 
 function normalizeHttpUrl(value: string) {

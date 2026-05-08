@@ -1,12 +1,12 @@
 'use client'
 
-import { useMemo, useState, useTransition } from 'react'
+import { useMemo, useState, useTransition, type PointerEvent } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   ChevronDownIcon,
   ChevronRightIcon,
+  GripVerticalIcon,
   PlusIcon,
-  Settings2Icon,
 } from 'lucide-react'
 import {
   DndContext,
@@ -28,12 +28,6 @@ import { CSS } from '@dnd-kit/utilities'
 
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from '@/components/ui/popover'
 import {
   Select,
   SelectContent,
@@ -54,7 +48,7 @@ import {
 } from '@/lib/properties/types'
 import type { Json } from '@/lib/supabase/database.types'
 import type { CollectionFieldWithType } from '@/lib/databases/queries'
-import type { SavedViewWithConfig } from '@/lib/views/types'
+import type { SavedViewWithConfig, ViewConfig } from '@/lib/views/types'
 
 import { FieldCell } from '../field-cell'
 import { newClientRequestId } from '@/lib/databases/realtime'
@@ -73,6 +67,8 @@ export type KanbanViewProps = {
   readOnly?: boolean
   canConfigureView?: boolean
   pageId?: string
+  embedded?: boolean
+  onViewConfigPatch?: (patch: Partial<ViewConfig>) => void
   onOpenRecord: (recordId: string) => void
 }
 
@@ -107,9 +103,10 @@ export function KanbanView(props: KanbanViewProps) {
     readOnly = false,
     canConfigureView = true,
     pageId,
+    embedded = false,
+    onViewConfigPatch,
     onOpenRecord,
   } = props
-  const router = useRouter()
   const [, startTransition] = useTransition()
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }))
   const [activeRecordId, setActiveRecordId] = useState<string | null>(null)
@@ -175,9 +172,11 @@ export function KanbanView(props: KanbanViewProps) {
 
   function setGroupField(fieldId: string | null) {
     if (!canConfigureView) return
+    const nextKanban = { ...view.config.kanban, groupFieldId: fieldId }
+    onViewConfigPatch?.({ kanban: nextKanban })
+    if (embedded) return
     startTransition(async () => {
       await updateKanbanConfig({ workspaceId, viewId: view.id, groupFieldId: fieldId })
-      router.refresh()
     })
   }
 
@@ -186,6 +185,13 @@ export function KanbanView(props: KanbanViewProps) {
     const next = new Set(collapsed)
     if (next.has(key)) next.delete(key)
     else next.add(key)
+    const nextKanban = {
+      ...view.config.kanban,
+      groupFieldId: groupField?.id ?? null,
+      collapsedColumns: Array.from(next),
+    }
+    onViewConfigPatch?.({ kanban: nextKanban })
+    if (embedded) return
     startTransition(async () => {
       await updateKanbanConfig({
         workspaceId,
@@ -193,7 +199,6 @@ export function KanbanView(props: KanbanViewProps) {
         groupFieldId: groupField?.id ?? null,
         collapsedColumns: Array.from(next),
       })
-      router.refresh()
     })
   }
 
@@ -415,7 +420,6 @@ export function KanbanView(props: KanbanViewProps) {
             {activeRecordId ? (
               <KanbanCardOverlay
                 record={recordsById.get(activeRecordId) ?? null}
-                titleFieldId={titleFieldId}
               />
             ) : null}
           </DragOverlay>
@@ -525,6 +529,11 @@ function KanbanCard({
     id: record.id,
     disabled: readOnly,
   })
+  const dragListeners = listeners as
+    | (typeof listeners & {
+        onPointerDown?: (event: PointerEvent<HTMLButtonElement>) => void
+      })
+    | undefined
 
   // Honor view's visibleFieldIds. Exclude title (rendered above), the group
   // field (already represented by the column), and long_text.
@@ -548,16 +557,32 @@ function KanbanCard({
         opacity: isDragging ? 0.4 : 1,
       }}
       {...(readOnly ? {} : attributes)}
-      {...(readOnly ? {} : listeners)}
       onClick={onOpen}
       className={cn(
-        'rounded-md border bg-background p-2 shadow-sm transition-colors hover:border-foreground/30',
-        readOnly ? 'cursor-pointer' : 'cursor-grab',
+        'group rounded-md border bg-background p-2 shadow-sm transition-colors hover:border-foreground/30',
+        'cursor-pointer',
       )}
     >
-      <p className="truncate text-sm font-medium">
-        {record.title ?? 'Untitled'}
-      </p>
+      <div className="flex items-start gap-1.5">
+        {!readOnly ? (
+          <button
+            type="button"
+            className="-ml-1 flex size-5 shrink-0 cursor-grab items-center justify-center rounded-sm text-muted-foreground opacity-0 transition-opacity hover:bg-accent hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100"
+            aria-label={`Drag ${record.title ?? 'Untitled'}`}
+            onClick={(event) => event.stopPropagation()}
+            {...listeners}
+            onPointerDown={(event) => {
+              event.stopPropagation()
+              dragListeners?.onPointerDown?.(event)
+            }}
+          >
+            <GripVerticalIcon className="size-3.5" />
+          </button>
+        ) : null}
+        <p className="min-w-0 flex-1 truncate text-sm font-medium">
+          {record.title ?? 'Untitled'}
+        </p>
+      </div>
       {visibleFields.length > 0 ? (
         <div
           className="mt-1.5 flex flex-col gap-1"
@@ -587,10 +612,8 @@ function KanbanCard({
 
 function KanbanCardOverlay({
   record,
-  titleFieldId,
 }: {
   record: CollectionRecordWithValues | null
-  titleFieldId: string | null
 }) {
   if (!record) return null
   return (

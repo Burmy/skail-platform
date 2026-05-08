@@ -2,6 +2,8 @@
 
 Do not commit real secret values. `.env` is ignored. `.env.example` should contain names and safe placeholders only.
 
+If local QA credentials are temporarily listed under a `#login` comment, treat them as development-only test data. They are not runtime environment variables and should not be copied into production.
+
 ## App
 
 | Variable | Required now | Used by | Purpose |
@@ -96,7 +98,10 @@ Required SQL order:
 2. `sql/supabase_rls_v1.sql`
 3. `sql/supabase_theme_styling_v1.sql`
 4. `sql/supabase_ai_builder_v1.sql`
-5. `sql/seed_templates_v1.sql`
+5. `sql/supabase_pages_engine_v1.sql`
+6. `sql/supabase_page_sharing_v1.sql`
+7. `sql/supabase_database_engine_v2.sql`
+8. `sql/seed_templates_v1.sql`
 
 Auth setup:
 

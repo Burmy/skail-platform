@@ -2,7 +2,7 @@
 
 import type { CollectionFieldWithType, CollectionWorkspaceData } from '@/lib/databases/queries'
 import type { CollectionRecordWithValues } from '@/lib/properties/types'
-import type { SavedViewWithConfig } from '@/lib/views/types'
+import type { SavedViewWithConfig, ViewConfig } from '@/lib/views/types'
 
 import { DatabaseTableView } from './database-table-view'
 import { KanbanView } from './kanban-view'
@@ -33,9 +33,11 @@ export type DatabaseViewRendererProps = {
   readOnly?: boolean
   canConfigureView?: boolean
   pageId?: string
+  embedded?: boolean
   onOpenRecord: (recordId: string) => void
   onArchiveField?: (field: CollectionFieldWithType) => void
   onSaveStateChange?: (state: GlobalSaveState) => void
+  onViewConfigPatch?: (patch: Partial<ViewConfig>) => void
 }
 
 export function DatabaseViewRenderer(props: DatabaseViewRendererProps) {
@@ -51,9 +53,11 @@ export function DatabaseViewRenderer(props: DatabaseViewRendererProps) {
     readOnly = false,
     canConfigureView = canManageSchema,
     pageId,
+    embedded = false,
     onOpenRecord,
     onArchiveField,
     onSaveStateChange,
+    onViewConfigPatch,
   } = props
 
   switch (view.view_type) {
@@ -71,6 +75,7 @@ export function DatabaseViewRenderer(props: DatabaseViewRendererProps) {
           readOnly={readOnly}
           canConfigureView={canConfigureView}
           pageId={pageId}
+          embedded={embedded}
           onOpenRecord={onOpenRecord}
           onArchiveField={onArchiveField}
           onSaveStateChange={onSaveStateChange}
@@ -89,6 +94,8 @@ export function DatabaseViewRenderer(props: DatabaseViewRendererProps) {
           readOnly={readOnly}
           canConfigureView={canConfigureView}
           pageId={pageId}
+          embedded={embedded}
+          onViewConfigPatch={onViewConfigPatch}
           onOpenRecord={onOpenRecord}
         />
       )
@@ -101,6 +108,10 @@ export function DatabaseViewRenderer(props: DatabaseViewRendererProps) {
           records={records}
           mutators={mutators}
           titleFieldId={titleFieldId}
+          embedded={embedded}
+          collectionId={collectionId}
+          canConfigureView={canConfigureView}
+          onViewConfigPatch={onViewConfigPatch}
           onOpenRecord={onOpenRecord}
         />
       )

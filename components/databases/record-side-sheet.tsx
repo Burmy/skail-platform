@@ -1,7 +1,6 @@
 'use client'
 
 import { useState, useTransition } from 'react'
-import { useRouter } from 'next/navigation'
 import { ArchiveIcon, RotateCcwIcon } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
@@ -24,7 +23,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { archiveRecord, restoreRecord, updateRecordField, updateRecordTitle } from '@/app/databases/actions'
-import type { CollectionRecordWithValues, PropertyType } from '@/lib/properties/types'
+import type { CollectionRecordWithValues } from '@/lib/properties/types'
 import type { CollectionFieldWithType } from '@/lib/databases/queries'
 
 import { FieldCell } from './field-cell'
@@ -38,6 +37,8 @@ export type RecordSideSheetProps = {
   fields: CollectionFieldWithType[]
   titleFieldId: string | null
   onArchiveRecord?: (record: CollectionRecordWithValues) => void
+  onTitleChange?: (recordId: string, title: string) => void
+  onFieldChange?: (recordId: string, fieldId: string, value: unknown) => void
   readOnly?: boolean
   pageId?: string
 }
@@ -51,10 +52,11 @@ export function RecordSideSheet(props: RecordSideSheetProps) {
     fields,
     titleFieldId,
     onArchiveRecord,
+    onTitleChange,
+    onFieldChange,
     readOnly = false,
     pageId,
   } = props
-  const router = useRouter()
   const [archiveConfirm, setArchiveConfirm] = useState(false)
   const [, startTransition] = useTransition()
 
@@ -75,11 +77,14 @@ export function RecordSideSheet(props: RecordSideSheetProps) {
       <Sheet open={open} onOpenChange={(o) => !o && onClose()}>
         <SheetContent side="right" className="flex w-[520px] flex-col gap-0 sm:max-w-lg">
           <SheetHeader className="border-b px-4 py-3">
+            <SheetTitle className="sr-only">
+              {record.title ? `Edit ${record.title}` : 'Edit record'}
+            </SheetTitle>
             <RecordTitleEditor
               workspaceId={workspaceId}
               recordId={record.id}
               initial={record.title ?? 'Untitled'}
-              onPersisted={() => router.refresh()}
+              onPersisted={(title) => onTitleChange?.(record.id, title)}
               readOnly={readOnly}
               pageId={pageId}
             />
@@ -100,6 +105,7 @@ export function RecordSideSheet(props: RecordSideSheetProps) {
                       record={record}
                       allFields={fields}
                       onSave={async (fieldId, value, clientRequestId) => {
+                        onFieldChange?.(record.id, fieldId, value)
                         const result = await updateRecordField({
                           workspaceId,
                           recordId: record.id,
@@ -111,6 +117,7 @@ export function RecordSideSheet(props: RecordSideSheetProps) {
                         return { ok: result.ok, error: result.ok ? undefined : result.error }
                       }}
                       isReadOnly={readOnly}
+                      suppressRefresh
                     />
                   </li>
                 ))}
@@ -126,7 +133,7 @@ export function RecordSideSheet(props: RecordSideSheetProps) {
                 onClick={() => {
                   startTransition(async () => {
                     await restoreRecord({ workspaceId, recordId: record.id })
-                    router.refresh()
+                    onClose()
                   })
                 }}
               >
@@ -174,7 +181,6 @@ export function RecordSideSheet(props: RecordSideSheetProps) {
                   await archiveRecord({ workspaceId, recordId: record.id })
                   setArchiveConfirm(false)
                   onClose()
-                  router.refresh()
                 })
               }}
             >
@@ -198,7 +204,7 @@ function RecordTitleEditor({
   workspaceId: string
   recordId: string
   initial: string
-  onPersisted?: () => void
+  onPersisted?: (title: string) => void
   readOnly?: boolean
   pageId?: string
 }) {
@@ -217,7 +223,8 @@ function RecordTitleEditor({
       })
       return { ok: result.ok, error: result.ok ? undefined : result.error }
     },
-    onPersistedChange: () => onPersisted?.(),
+    onPersistedChange: (next) =>
+      onPersisted?.(typeof next === 'string' ? next : String(next ?? '')),
   })
 
   return (

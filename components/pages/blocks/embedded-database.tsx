@@ -15,6 +15,14 @@ import {
 } from '@/components/pages/source-picker-dialog'
 import { usePageRuntime } from '@/components/pages/page-runtime-context'
 
+const EMBEDDED_DATABASE_CACHE_TTL_MS = 5 * 60_000
+
+const embeddedDatabaseCache = new Map<
+  string,
+  { data: CollectionWorkspaceData; fetchedAt: number }
+>()
+const embeddedDatabaseRequests = new Map<string, Promise<CollectionWorkspaceData>>()
+
 export function EmbeddedDatabase({
   workspaceId,
   collectionId,
@@ -48,6 +56,17 @@ export function EmbeddedDatabase({
     () => parseViewOverrides(viewOverridesJson),
     [viewOverridesJson],
   )
+  const cacheKey = useMemo(
+    () =>
+      [
+        workspaceId,
+        collectionId,
+        viewId ?? '__collection__',
+        runtime.pageId ?? '__no_page__',
+        runtime.publicToken ?? '__private__',
+      ].join(':'),
+    [workspaceId, collectionId, viewId, runtime.pageId, runtime.publicToken],
+  )
 
   const displayData = useMemo(() => {
     if (!data) return null
@@ -66,21 +85,51 @@ export function EmbeddedDatabase({
 
   useEffect(() => {
     let cancelled = false
-    setData(null)
+    const cached = embeddedDatabaseCache.get(cacheKey)
+    if (cached) {
+      setData(cached.data)
+      if (Date.now() - cached.fetchedAt < EMBEDDED_DATABASE_CACHE_TTL_MS) {
+        setError(null)
+        return
+      }
+    } else {
+      setData(null)
+    }
     setError(null)
     const params = new URLSearchParams({ workspaceId, collectionId })
     if (viewId) params.set('viewId', viewId)
     if (runtime.pageId) params.set('pageId', runtime.pageId)
     if (runtime.publicToken) params.set('publicToken', runtime.publicToken)
-    fetch(`/api/pages/databases/shell?${params.toString()}`)
-      .then((response) => response.json())
-      .then((json) => {
+    let request = embeddedDatabaseRequests.get(cacheKey)
+    if (!request) {
+      const nextRequest = fetch(`/api/pages/databases/shell?${params.toString()}`)
+        .then(async (response) => {
+          const json = (await response.json()) as unknown
+          const rawError =
+            json && typeof json === 'object' && 'error' in json
+              ? (json as { error?: unknown }).error
+              : null
+          const error =
+            typeof rawError === 'string' && rawError.trim().length > 0
+              ? rawError
+              : null
+          if (!response.ok || error) {
+            throw new Error(error ?? 'Could not load database source.')
+          }
+          return json as CollectionWorkspaceData
+        })
+        .finally(() => {
+          embeddedDatabaseRequests.delete(cacheKey)
+        })
+      embeddedDatabaseRequests.set(cacheKey, nextRequest)
+      request = nextRequest
+    }
+
+    request
+      .then((next) => {
         if (cancelled) return
-        if (json.error) {
-          setError(json.error)
-          return
-        }
-        setData(json as CollectionWorkspaceData)
+        embeddedDatabaseCache.set(cacheKey, { data: next, fetchedAt: Date.now() })
+        setData(next)
       })
       .catch((fetchError) => {
         if (!cancelled) setError(String(fetchError))
@@ -88,7 +137,7 @@ export function EmbeddedDatabase({
     return () => {
       cancelled = true
     }
-  }, [workspaceId, collectionId, viewId, runtime.pageId, runtime.publicToken])
+  }, [cacheKey, workspaceId, collectionId, viewId, runtime.pageId, runtime.publicToken])
 
   if (error) {
     return (
@@ -133,7 +182,7 @@ export function EmbeddedDatabase({
     return (
       <div className="flex h-32 items-center justify-center rounded-md border bg-muted/20 text-xs text-muted-foreground">
         <Loader2Icon className="mr-2 size-3 animate-spin" />
-        Loading database…
+        Loading database...
       </div>
     )
   }

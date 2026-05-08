@@ -39,6 +39,8 @@ import { pageDocumentReferencesSource } from '@/lib/pages/document-sources'
 export type PropertyActionState = {
   status: 'idle' | 'error' | 'success'
   message?: string
+  fieldId?: string
+  field?: CollectionField
 }
 
 const initialActionState: PropertyActionState = {
@@ -437,7 +439,7 @@ export async function createField(
     ? buildFieldOptions(optionLabelsFromInput(parsed.data.options))
     : {}
 
-  const { error: insertError } = await access.admin
+  const { data: createdField, error: insertError } = await access.admin
     .from('collection_fields')
     .insert({
       workspace_id: parsed.data.workspaceId,
@@ -448,13 +450,19 @@ export async function createField(
       options_json: optionsJson,
       position: count ?? 0,
     })
+    .select('*')
+    .single()
 
   if (insertError) {
     return error(insertError.message)
   }
 
   revalidateWorkspaceDatabases(parsed.data.workspaceId)
-  return success('Field created.')
+  return {
+    ...success('Field created.'),
+    fieldId: createdField.id,
+    field: createdField,
+  }
 }
 
 export async function updateField(

@@ -217,51 +217,18 @@
   color: var(--foreground);
 }
 
-.skail-page-editor-grid .bn-editor > .bn-block-group,
-.skail-page-editor-grid .bn-editor > .ProseMirror > .bn-block-group,
-.skail-page-editor-grid .ProseMirror > .bn-block-group {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  column-gap: 1rem;
-  align-items: start;
+.skail-page-editor .bn-block-column-list {
+  gap: 1rem;
 }
 
-.skail-page-editor-grid .bn-editor > .bn-block-group > .bn-block-outer,
-.skail-page-editor-grid .bn-editor > .ProseMirror > .bn-block-group > .bn-block-outer,
-.skail-page-editor-grid .ProseMirror > .bn-block-group > .bn-block-outer {
-  grid-column: span 3 / span 3;
+.skail-page-editor .bn-block-column {
+  border: 0;
   min-width: 0;
 }
 
-.skail-page-editor-grid .bn-editor > .bn-block-group > .bn-block-outer[data-skail-span="1"],
-.skail-page-editor-grid .bn-editor > .ProseMirror > .bn-block-group > .bn-block-outer[data-skail-span="1"],
-.skail-page-editor-grid .ProseMirror > .bn-block-group > .bn-block-outer[data-skail-span="1"] {
-  grid-column: span 1 / span 1;
-}
-
-.skail-page-editor-grid .bn-editor > .bn-block-group > .bn-block-outer[data-skail-span="2"],
-.skail-page-editor-grid .bn-editor > .ProseMirror > .bn-block-group > .bn-block-outer[data-skail-span="2"],
-.skail-page-editor-grid .ProseMirror > .bn-block-group > .bn-block-outer[data-skail-span="2"] {
-  grid-column: span 2 / span 2;
-}
-
-.skail-page-editor-grid .bn-editor > .bn-block-group > .bn-block-outer[data-skail-block-type="database_view"],
-.skail-page-editor-grid .bn-editor > .ProseMirror > .bn-block-group > .bn-block-outer[data-skail-block-type="database_view"],
-.skail-page-editor-grid .ProseMirror > .bn-block-group > .bn-block-outer[data-skail-block-type="database_view"] {
-  grid-column: span 3 / span 3;
-}
-
-.skail-page-editor-grid .bn-editor > .bn-block-group > .bn-block-outer[data-skail-block-type="database_view"][data-skail-span="2"],
-.skail-page-editor-grid .bn-editor > .ProseMirror > .bn-block-group > .bn-block-outer[data-skail-block-type="database_view"][data-skail-span="2"],
-.skail-page-editor-grid .ProseMirror > .bn-block-group > .bn-block-outer[data-skail-block-type="database_view"][data-skail-span="2"] {
-  grid-column: span 2 / span 2;
-}
-
 @media (max-width: 900px) {
-  .skail-page-editor-grid .bn-editor > .bn-block-group,
-  .skail-page-editor-grid .bn-editor > .ProseMirror > .bn-block-group,
-  .skail-page-editor-grid .ProseMirror > .bn-block-group {
-    display: block;
+  .skail-page-editor .bn-block-column-list {
+    flex-direction: column;
   }
 }
 

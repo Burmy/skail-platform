@@ -38,6 +38,7 @@ import type { ViewConfigMutators } from './hooks/use-optimistic-view'
 export type DatabaseToolbarProps = {
   workspaceId: string
   collectionId: string
+  collectionName?: string
   view: SavedViewWithConfig
   fields: CollectionFieldWithType[]
   saveState: GlobalSaveState
@@ -66,6 +67,7 @@ export function DatabaseToolbar(props: DatabaseToolbarProps) {
   const {
     workspaceId,
     collectionId,
+    collectionName,
     view,
     fields,
     saveState,
@@ -166,9 +168,9 @@ export function DatabaseToolbar(props: DatabaseToolbarProps) {
         {embedded && sourceControl ? (
           <EmbeddedSourceControl
             workspaceId={workspaceId}
-            collectionName={sourceControl.sourceName}
+            collectionName={collectionName ?? sourceControl.sourceName}
             viewName={view.name}
-            viewType={sourceControl.viewType}
+            viewType={view.view_type as ViewTypeHint}
             databaseHref={sourceControl.databaseHref}
             canOpenDatabaseApp={sourceControl.canOpenDatabaseApp}
             canManageSource={sourceControl.canManageSource}

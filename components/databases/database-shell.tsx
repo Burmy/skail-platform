@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 
 import { cn } from '@/lib/utils'
@@ -36,6 +36,8 @@ import { useOptimisticRecords } from './hooks/use-optimistic-records'
 import { useOptimisticView } from './hooks/use-optimistic-view'
 import type { GlobalSaveState } from './saving-indicator'
 
+const embeddedRecordSheetState = new Map<string, string>()
+
 export type DatabaseShellProps = {
   data: CollectionWorkspaceData
   embedded?: boolean
@@ -67,12 +69,40 @@ export function DatabaseShell({
   const router = useRouter()
   const [saveState, setSaveState] = useState<GlobalSaveState>('idle')
   const [archiveOpen, setArchiveOpen] = useState(false)
-  const [openRecordId, setOpenRecordId] = useState<string | null>(null)
   const { records, mutators } = useOptimisticRecords(data.records)
   const { view, searchQuery, mutators: viewMutators } = useOptimisticView(
     data.activeView,
   )
-  const archiveCoordinator = useOptimisticArchive(() => router.refresh())
+  const embeddedRecordSheetKey =
+    embedded && pageId
+      ? `${pageId}:${data.collection.id}:${data.activeView.id}`
+      : null
+  const [openRecordId, setOpenRecordIdState] = useState<string | null>(() =>
+    embeddedRecordSheetKey
+      ? (embeddedRecordSheetState.get(embeddedRecordSheetKey) ?? null)
+      : null,
+  )
+  const setOpenRecordId = useCallback(
+    (recordId: string | null) => {
+      if (embeddedRecordSheetKey) {
+        if (recordId) embeddedRecordSheetState.set(embeddedRecordSheetKey, recordId)
+        else embeddedRecordSheetState.delete(embeddedRecordSheetKey)
+      }
+      setOpenRecordIdState(recordId)
+    },
+    [embeddedRecordSheetKey],
+  )
+
+  useEffect(() => {
+    if (!embeddedRecordSheetKey) return
+    setOpenRecordIdState(
+      embeddedRecordSheetState.get(embeddedRecordSheetKey) ?? null,
+    )
+  }, [embeddedRecordSheetKey])
+  const softRefresh = useCallback(() => {
+    if (!embedded) router.refresh()
+  }, [embedded, router])
+  const archiveCoordinator = useOptimisticArchive(softRefresh)
 
   const collections = useMemo(
     () =>
@@ -168,7 +198,7 @@ export function DatabaseShell({
         onOptimistic: () => setOpenRecordId(null),
       })
     },
-    [archiveCoordinator, data.workspaceId],
+    [archiveCoordinator, data.workspaceId, setOpenRecordId],
   )
 
   const handleArchiveField = useCallback(
@@ -313,6 +343,7 @@ export function DatabaseShell({
           <DatabaseToolbar
             workspaceId={data.workspaceId}
             collectionId={data.collection.id}
+            collectionName={data.collection.name}
             view={activeView}
             fields={fields}
             saveState={saveState}
@@ -325,7 +356,7 @@ export function DatabaseShell({
             pageId={pageId}
             embedded={embedded}
             sourceControl={sourceControl}
-            onCreateRecord={embedded ? handleCreateRecord : undefined}
+            onCreateRecord={handleCreateRecord}
             persistViewChanges={!embedded}
             onViewConfigPatch={(patch) => {
               if (!embedded || !onViewConfigOverridesChange) return
@@ -365,6 +396,15 @@ export function DatabaseShell({
             onOpenRecord={(id) => setOpenRecordId(id)}
             onArchiveField={handleArchiveField}
             onSaveStateChange={setSaveState}
+            embedded={embedded}
+            onViewConfigPatch={(patch) => {
+              viewMutators.patchConfig(patch)
+              if (!embedded || !onViewConfigOverridesChange) return
+              onViewConfigOverridesChange({
+                ...(viewConfigOverrides ?? {}),
+                ...patch,
+              })
+            }}
           />
         </section>
       </main>
@@ -377,6 +417,10 @@ export function DatabaseShell({
         fields={fields}
         titleFieldId={data.titleFieldId}
         onArchiveRecord={handleArchiveRecord}
+        onTitleChange={(recordId, title) => mutators.setTitle(recordId, title)}
+        onFieldChange={(recordId, fieldId, value) =>
+          mutators.setFieldValue(recordId, fieldId, value)
+        }
         readOnly={readOnly}
         pageId={pageId}
       />

@@ -1,6 +1,6 @@
 # Architecture
 
-SKAIL Platform is a Next.js App Router application backed by Supabase Auth/Postgres/RLS. The app is organized around a workspace tenant boundary. Most durable product data belongs to a workspace and carries `workspace_id`.
+SKAIL Platform is a Next.js App Router application backed by Supabase Auth/Postgres/RLS. The app is organized around a workspace tenant boundary, with page/stack sharing layered on top for portal-style access.
 
 ## High-Level View
 
@@ -11,13 +11,14 @@ Browser
   v
 Next.js App Router
   |
-  | Server Components load data with Supabase SSR client
-  | Server Actions mutate data after membership checks
-  | Route Handlers expose API-only surfaces
+  | Server Components load workspace/page/database data
+  | Client shell keeps sidebar/header mounted across workspace routes
+  | Server Actions mutate after workspace or page-access checks
+  | Route Handlers expose AI, file, page-source, public-form, and shell APIs
   v
 Supabase
   |
-  | Auth sessions, Postgres tables, RLS read policies
+  | Auth sessions, Postgres tables, RLS read/share policies
   v
 Workspace-scoped product data
 
@@ -30,35 +31,55 @@ Gemini API
 
 ## Next.js App Router Structure
 
-The `app/` directory is the route source of truth:
-
-- `app/layout.tsx` sets metadata, fonts, global CSS, and Vercel Analytics in production.
-- `app/page.tsx` is a server redirector to the user's first workspace.
-- Feature pages usually load workspace context in a Server Component and pass serialized data into an interactive Client Component.
+- `app/layout.tsx` sets metadata, fonts, global CSS, theme provider, and Vercel Analytics in production.
+- `app/page.tsx` redirects to the user's first workspace or `/workspaces/new`.
+- `app/(workspace)/layout.tsx` wraps authenticated workspace app routes in `WorkspaceShell`. The route group does not change public URLs.
+- `components/workspace-shell.tsx` fetches `/api/workspaces/shell`, caches workspace shell data, and renders `DashboardLayout`.
+- `app/(workspace)/...` contains dashboard, pages, page editor, databases, theme, AI Builder, templates, agents, automations, and portal preview routes.
+- Public/share routes remain outside the workspace shell: `/login`, `/signup`, `/auth/callback`, `/share/[token]`, `/invite/[token]`, and `/f/[slug]`.
 - Mutations are mostly in colocated `actions.ts` files marked with `'use server'`.
-- API routes currently exist only for AI Builder under `app/api/ai-builder/*`.
+- API routes are under `app/api/*` and return JSON rather than relying on browser redirects.
 - `proxy.ts` delegates to `lib/supabase/proxy.ts` for session refresh and route protection.
+
+## Persistent Workspace Shell
+
+`WorkspaceShell` is a client shell for the main app. It keeps the sidebar/header mounted while route content changes, which avoids the old full-shell reload feeling on navigation.
+
+Data loaded by `/api/workspaces/shell`:
+
+- current user email
+- active workspace
+- all user workspaces
+- applied workspace theme
+
+Resolution rules:
+
+- `?workspace_id=` wins when present.
+- `/workspaces/[workspaceId]` route params are used for dashboard/settings.
+- Otherwise the shell falls back to `localStorage.skail:lastWorkspaceId`.
+
+If a shared user opens `/p/[pageId]` without workspace membership, the shell receives a 403 and passes through so the page route can render the simplified portal shell.
 
 ## Server and Client Component Strategy
 
-Pattern used across persisted features:
+Common pattern:
 
-1. A route-level Server Component resolves auth and workspace access.
-2. Server-side query helpers in `lib/*/queries.ts` fetch Supabase data.
-3. The page renders `DashboardLayout`.
-4. A Client Component handles local UI state and submits server actions.
+1. A route-level Server Component resolves auth and workspace/page access.
+2. Query helpers in `lib/*/queries.ts` fetch Supabase data.
+3. The route renders a focused Client Component inside the persistent shell.
+4. Mutations use server actions or JSON route handlers.
+5. Normal interactive edits update local state first and refresh in the background only when needed.
 
 Examples:
 
-| Route | Server data loader | Client surface | Mutations |
+| Surface | Server data loader | Client surface | Mutations |
 | --- | --- | --- | --- |
-| `/databases` | `lib/properties/queries.ts` | `PropertyEngine` | `app/databases/actions.ts` |
-| `/views` | `lib/views/queries.ts` | `ViewEngine` | `app/views/actions.ts` |
-| `/pages` | `lib/layout/queries.ts` | `LayoutBuilder` | `app/pages/actions.ts` |
-| `/settings/theme` | `lib/theme/queries.ts` | `ThemeStylingEngine` | `app/settings/theme/actions.ts` |
-| `/ai-builder` | `lib/workspaces/queries.ts`, theme helpers | `AiBuilderChat` | API route handlers |
-
-The dashboard shell components are client-side because the sidebar has collapse state and uses `usePathname`.
+| Workspace dashboard | `lib/workspaces/queries.ts` | `WorkspaceDashboard` | `app/workspaces/actions.ts` |
+| Databases | `lib/databases/queries.ts` | `DatabaseShell` | `app/databases/actions.ts` |
+| Pages home | `lib/pages/queries.ts` | `PagesHome` | `app/pages/actions.ts` |
+| Page editor | `lib/pages/access.ts`, `lib/pages/queries.ts` | `PageShell`, `PageEditor` | `app/pages/actions.ts`, `app/pages/share-actions.ts` |
+| Theme | `lib/theme/queries.ts` | `ThemeStylingEngine` | `app/settings/theme/actions.ts` |
+| AI Builder | workspace/theme query helpers | `AiBuilderChat` | `app/api/ai-builder/*` |
 
 ## Supabase Architecture
 
@@ -85,41 +106,51 @@ The codebase uses typed table definitions in `lib/supabase/database.types.ts`.
 - If auto-confirm is disabled or admin key is absent, signup falls back to normal Supabase `signUp` with an auth callback.
 - `/auth/callback` exchanges an auth code for a session and redirects to a safe `next` path.
 - `proxy.ts` redirects unauthenticated non-public routes to `/login?next=...`.
+- Invite links route signed-out users through login/signup and back to `/invite/[token]`.
 
 ## Workspace Membership Model
 
-The tenant model is centered on:
+Workspaces are the full SKAIL app boundary.
 
 - `workspaces`: workspace identity, white-label fields, domain fields.
 - `workspace_members`: user membership by `user_id`, `workspace_id`, `role_key`, and `status`.
 
-Common role checks in code:
+Workspace members can access the full app shell based on role. Owner/admin checks are still mostly hardcoded in TypeScript helpers and actions.
 
-| Role logic | Location |
-| --- | --- |
-| Owner/admin can manage collection schema | `lib/properties/queries.ts` |
-| Owner/admin can apply AI Builder changes | `lib/ai-builder/permissions.ts` |
-| Owner/admin/designer/editor can manage theme layout surfaces | `lib/theme/permissions.ts` |
-| Owner/admin can edit white-label settings | `app/workspaces/actions.ts` |
+## Page and Stack Sharing Model
 
-There is no centralized role-capabilities table yet. Role checks are currently hardcoded.
+Page/stack sharing is separate from workspace membership.
+
+Access levels:
+
+- `view`: read shared page/stack content.
+- `edit`: edit page title, cover/icon, BlockNote document, and records exposed through embedded database blocks.
+- `manage`: edit plus manage page structure and sharing inside the granted scope.
+
+Share scopes:
+
+- `page`: grants access to that page and child pages.
+- `stack`: grants access to current and future pages in that stack.
+
+Tables:
+
+- `page_share_links`: tokenized public/invite links. Only token hashes are stored.
+- `page_access_grants`: accepted signed-in user access.
+- `page_share_events`: audit log for sharing actions.
+
+Public links are view-only and route through `/share/[token]`. Invite links require sign-in and route through `/invite/[token]`.
 
 ## Route Protection Model
 
-Route protection has two layers:
+Protection has three layers:
 
-1. Proxy-level redirect:
-   - `lib/supabase/proxy.ts` checks auth claims.
-   - Public paths are `/login`, `/signup`, and `/auth`.
-   - API routes are excluded by `proxy.ts` matcher so they can return JSON errors.
+1. Proxy-level redirect for authenticated app routes.
+2. Workspace route/query validation through `getUserWorkspaces`, `getWorkspaceForUser`, and domain query helpers.
+3. Page/share validation through `lib/pages/access.ts` for `/p/[pageId]`, `/share/[token]`, `/invite/[token]`, embedded databases, and public forms.
 
-2. Route/action-level validation:
-   - Server pages call `getUserWorkspaces`, `getWorkspaceForUser`, or feature-specific query loaders.
-   - Server actions and API routes query `workspace_members` before service-role writes.
+Do not rely on proxy protection alone. Mutations must re-check workspace membership or page/share access.
 
-Do not rely on proxy protection alone. Mutations must re-check membership.
-
-## Domain Model Overview
+## Data and Domain Model
 
 ```text
 workspaces
@@ -128,9 +159,15 @@ workspaces
       -> collection_fields
       -> collection_records
           -> record_values
-  -> views
-  -> pages
-      -> widgets
+      -> views
+  -> page_stacks
+      -> pages
+          -> page_documents
+          -> page_visits
+          -> page_forms
+  -> page_share_links
+  -> page_access_grants
+  -> page_share_events
   -> themes
   -> page_style_settings
   -> widget_style_settings
@@ -148,52 +185,53 @@ agent_templates are platform-level agent definitions.
 
 ### Workspaces
 
-Workspaces are the primary tenant. Workspace creation uses the service role after checking the current Supabase user, creates a workspace, then creates an owner membership.
+Workspaces are the tenant root. Workspace creation uses the service role after checking the current Supabase user, creates a workspace, then creates an owner membership.
 
-### Databases / Collections
+### Pages
 
-Collections act like workspace databases. Each collection has fields and records. Record values are stored as JSON per field in `record_values`.
+Pages are BlockNote documents stored in `page_documents`. Stacks organize pages in the sidebar. Page routes support workspace mode, shared signed-in mode, and public read-only mode.
 
-### Views
+### Databases and Views
 
-Views are saved configurations on top of collections. Current view types are `table`, `kanban`, `calendar`, and `dashboard`. Dashboard is treated as a placeholder view type.
+Collections act like databases. Views are saved configurations over collections and are managed inside the database app at `/databases/[collectionId]`. There is no standalone `/views` route now.
 
-### Pages / Layouts
+### Embedded Databases
 
-Pages contain ordered widgets. Widgets can be static or connected to a collection or view. Duplicate modes can duplicate only layout, layout plus empty database structure, or everything including records.
+Page database blocks reference exact collection/view identity and store local overrides on the page document. Embedded blocks fetch through `/api/pages/databases/shell`, verify that the source is actually embedded on the page, cache loaded shell data, and suppress full route refreshes for normal cell/dropdown interactions.
 
-### Theme + Styling
+### Theme and Styling
 
-Themes and styles use safe token objects, not arbitrary CSS or JavaScript. `DashboardLayout` applies the resolved workspace theme as CSS variables through `workspaceThemeToStyle`.
+Themes and styles use safe token objects, not arbitrary CSS or JavaScript. `DashboardLayout` and portal/page surfaces apply resolved workspace themes as CSS variables.
 
 ### AI Builder
 
-AI Builder sends a structured workspace context to Gemini from a backend route. Gemini returns JSON that is validated against `AI_BUILDER_JSON_CONTRACT`. Valid plans are stored as previews and only applied after confirmation.
+AI Builder sends structured workspace context to Gemini from backend routes. Gemini returns JSON that is validated against the runtime contract, stored as a preview, and applied only after confirmation.
 
 ### Templates, Agents, Automations, Portal Preview
 
-These are currently UI placeholders or static demo surfaces. SQL exists for templates, agent templates, instances, logs, and webhook events, but the visible routes do not yet load those tables.
+These are still placeholder or mock-heavy. SQL exists for templates, agents, and webhook events, but the visible routes are not fully backed by those tables.
 
 ## Static/Mock vs Persisted Data
 
 | Area | Data source | Status |
 | --- | --- | --- |
-| Workspaces | Supabase | Implemented |
+| Auth/workspaces | Supabase | Implemented |
 | Workspace dashboard counts | Supabase | Implemented |
-| Databases/records | Supabase | Implemented/partial |
-| Views | Supabase | Implemented/partial |
-| Pages/widgets | Supabase | Implemented/partial |
+| Pages/stacks/documents/visits | Supabase | Implemented/partial |
+| Page sharing | Supabase | Implemented/partial |
+| Databases/records/files/forms | Supabase | Implemented/partial |
+| Saved database views | Supabase | Implemented/partial |
 | Theme/style | Supabase | Implemented/partial |
 | AI Builder previews | Supabase + Gemini | Implemented/partial |
-| Templates route | Hardcoded array in route | Placeholder |
-| Agents route | `lib/data.ts` static agents | Placeholder |
-| Automations route | Hardcoded array in route | Placeholder |
-| Portal preview | `lib/data.ts` static activity/checklist | Mock |
-| `lib/data.ts` collections/widgets | Static legacy/demo data | Mostly not used by persisted engines |
+| Templates route | Hardcoded array | Placeholder |
+| Agents route | Static/placeholder data | Placeholder |
+| Automations route | Hardcoded array | Placeholder |
+| Portal preview | Static mock | Mock |
+| `lib/data.ts` navigation/static content | Static support data | Mixed; nav still used |
 
 ## System Boundaries and Future Integrations
 
-Planned but not implemented:
+Planned or incomplete:
 
 - n8n signed webhook receiver.
 - Google Drive picker/API integration.
@@ -201,13 +239,16 @@ Planned but not implemented:
 - Real template installer backed by `templates`.
 - Agent execution, managed/internal visibility controls, and agent activity logs.
 - Role capabilities table or richer RBAC model.
-- Client-facing portal routing backed by workspace pages.
+- More complete write RLS.
 
 ## Architecture Rules To Preserve
 
 - Every tenant-owned table needs `workspace_id`.
 - Do not expose service role, Gemini, n8n, email, encryption, or signing secrets to the browser.
-- Validate membership before service-role writes.
+- Validate workspace membership before service-role writes.
+- Validate page/share access for shared/public page and embedded database operations.
+- Do not mutate global saved view config from page-local embedded database controls.
+- Avoid `router.refresh()` for normal embedded database interactions.
 - Use structured JSON for AI actions.
 - Store AI previews before applying.
 - Treat destructive changes as preview/confirmation flows.

@@ -16,7 +16,6 @@ import {
   Shield,
 } from 'lucide-react'
 
-import { DashboardLayout } from '@/components/dashboard-layout'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -80,17 +79,14 @@ export default function AgentsPage() {
   }
 
   return (
-    <DashboardLayout
-      actions={
+    <>
+      <div className="border-b bg-background px-4 py-3 lg:px-6">
         <Button disabled>
           <Plus data-icon="inline-start" />
           Create Agent
           <Badge variant="secondary">Future</Badge>
         </Button>
-      }
-      description="Managed assistant placeholders for future workspace automation"
-      title="Agent Library"
-    >
+      </div>
       <div className="flex min-h-[calc(100dvh-3.5rem)] flex-col lg:h-[calc(100dvh-3.5rem)] lg:min-h-0 lg:flex-row">
         <aside className="flex w-full shrink-0 flex-col border-b bg-card lg:w-96 lg:border-b-0 lg:border-r">
           <div className="border-b p-4">
@@ -293,6 +289,6 @@ export default function AgentsPage() {
           )}
         </section>
       </div>
-    </DashboardLayout>
+    </>
   )
 }

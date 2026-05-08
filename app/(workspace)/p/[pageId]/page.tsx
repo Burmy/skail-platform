@@ -1,6 +1,5 @@
 import { notFound, redirect } from 'next/navigation'
 
-import { DashboardLayout } from '@/components/dashboard-layout'
 import { PortalLayout } from '@/components/pages/portal-layout'
 import { PageShell } from '@/components/pages/page-shell'
 import {
@@ -12,7 +11,6 @@ import { getPortalTreeForGrants } from '@/lib/pages/portal-tree'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { getAppliedWorkspaceTheme } from '@/lib/theme/applied-theme'
 import { workspaceThemeToStyle } from '@/lib/theme/css'
-import { getUserWorkspaces, getWorkspaceForUser } from '@/lib/workspaces/queries'
 
 export const dynamic = 'force-dynamic'
 
@@ -91,34 +89,18 @@ export default async function PageEditorRoute({
     )
   }
 
-  const [{ workspaces }, ctx] = await Promise.all([
-    getUserWorkspaces(),
-    getWorkspaceForUser(workspaceId),
-  ])
-
-  if (!ctx.workspace || !ctx.roleKey) notFound()
-
   return (
-    <DashboardLayout
-      description={access.page.title}
+    <PageShell
+      workspaceId={workspaceId}
+      pageId={access.page.id}
       title={access.page.title}
-      userEmail={ctx.user?.email ?? null}
-      workspace={{ ...ctx.workspace, role_key: ctx.roleKey }}
-      workspaces={workspaces}
-      theme={appliedTheme}
-    >
-      <PageShell
-        workspaceId={workspaceId}
-        pageId={access.page.id}
-        title={access.page.title}
-        icon={access.page.icon}
-        cover={access.page.cover_image_url}
-        initialContent={document?.content_json ?? null}
-        initialVersion={document?.version ?? 0}
-        accessLevel="manage"
-        canManageStructure
-        mode="workspace"
-      />
-    </DashboardLayout>
+      icon={access.page.icon}
+      cover={access.page.cover_image_url}
+      initialContent={document?.content_json ?? null}
+      initialVersion={document?.version ?? 0}
+      accessLevel="manage"
+      canManageStructure={access.canManageStructure}
+      mode="workspace"
+    />
   )
 }

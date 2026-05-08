@@ -60,6 +60,8 @@ export function SidebarPagesSection({
   const pathname = usePathname()
   const [data, setData] = useState<NavData | null>(null)
   const [collapsedStacks, setCollapsedStacks] = useState<Set<string>>(new Set())
+  const [recentsExpanded, setRecentsExpanded] = useState(false)
+  const [stacksExpanded, setStacksExpanded] = useState(true)
   const [, startTransition] = useTransition()
 
   const refresh = useCallback(async () => {
@@ -73,10 +75,16 @@ export function SidebarPagesSection({
     void refresh()
   }, [refresh])
 
-  // Refresh on path change so newly-created pages appear in nav.
   useEffect(() => {
-    void refresh()
-  }, [pathname, refresh])
+    function onRefresh() {
+      void refresh()
+    }
+
+    window.addEventListener('skail:pages-nav-refresh', onRefresh)
+    return () => {
+      window.removeEventListener('skail:pages-nav-refresh', onRefresh)
+    }
+  }, [refresh])
 
   if (!data) {
     return (
@@ -121,60 +129,86 @@ export function SidebarPagesSection({
       {/* Recents */}
       {data.recents.length > 0 ? (
         <div>
-          <div className="flex items-center gap-1.5 px-2 py-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+          <button
+            type="button"
+            onClick={() => setRecentsExpanded((value) => !value)}
+            className="flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground hover:bg-sidebar-accent/40 hover:text-sidebar-foreground"
+            aria-expanded={recentsExpanded}
+          >
+            {recentsExpanded ? (
+              <ChevronDownIcon className="size-3" />
+            ) : (
+              <ChevronRightIcon className="size-3" />
+            )}
             <ClockIcon className="size-3" />
-            Recents
-          </div>
-          <ul className="space-y-0.5">
-            {data.recents.slice(0, 5).map((r) => (
-              <li key={r.id}>
-                <SidebarPageLink
-                  pageId={r.id}
-                  title={r.title}
-                  icon={r.icon}
-                  active={pathname === `/p/${r.id}`}
-                />
-              </li>
-            ))}
-          </ul>
+            <span>Recents</span>
+          </button>
+          {recentsExpanded ? (
+            <ul className="space-y-0.5">
+              {data.recents.slice(0, 5).map((r) => (
+                <li key={r.id}>
+                  <SidebarPageLink
+                    pageId={r.id}
+                    title={r.title}
+                    icon={r.icon}
+                    active={pathname === `/p/${r.id}`}
+                  />
+                </li>
+              ))}
+            </ul>
+          ) : null}
         </div>
       ) : null}
 
       {/* Stacks */}
       <div>
-        <div className="flex items-center justify-between gap-1.5 px-2 py-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-          <span>Stacks</span>
+        <div className="flex items-center justify-between gap-1.5">
+          <button
+            type="button"
+            onClick={() => setStacksExpanded((value) => !value)}
+            className="flex min-w-0 flex-1 items-center gap-1.5 rounded-md px-2 py-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground hover:bg-sidebar-accent/40 hover:text-sidebar-foreground"
+            aria-expanded={stacksExpanded}
+          >
+            {stacksExpanded ? (
+              <ChevronDownIcon className="size-3" />
+            ) : (
+              <ChevronRightIcon className="size-3" />
+            )}
+            <span>Stacks</span>
+          </button>
           <button
             type="button"
             onClick={handleNewStack}
-            className="rounded p-0.5 hover:bg-sidebar-accent"
+            className="rounded p-0.5 text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-foreground"
             title="New stack"
             aria-label="New stack"
           >
             <PlusIcon className="size-3" />
           </button>
         </div>
-        <ul className="space-y-0.5">
-          {data.stacks.map((entry) => (
-            <li key={entry.stack?.id ?? '__private__'}>
-              <StackNode
-                workspaceId={workspaceId}
-                entry={entry}
-                collapsed={
-                  entry.stack ? collapsedStacks.has(entry.stack.id) : false
-                }
-                onToggle={() =>
-                  entry.stack ? toggleStack(entry.stack.id) : undefined
-                }
-                onCreatePage={(parentId) =>
-                  handleNewPage(entry.stack?.id ?? null, parentId)
-                }
-                onMutated={refresh}
-                pathname={pathname}
-              />
-            </li>
-          ))}
-        </ul>
+        {stacksExpanded ? (
+          <ul className="space-y-0.5">
+            {data.stacks.map((entry) => (
+              <li key={entry.stack?.id ?? '__private__'}>
+                <StackNode
+                  workspaceId={workspaceId}
+                  entry={entry}
+                  collapsed={
+                    entry.stack ? collapsedStacks.has(entry.stack.id) : false
+                  }
+                  onToggle={() =>
+                    entry.stack ? toggleStack(entry.stack.id) : undefined
+                  }
+                  onCreatePage={(parentId) =>
+                    handleNewPage(entry.stack?.id ?? null, parentId)
+                  }
+                  onMutated={refresh}
+                  pathname={pathname}
+                />
+              </li>
+            ))}
+          </ul>
+        ) : null}
       </div>
 
       {/* Trash */}

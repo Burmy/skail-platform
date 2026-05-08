@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import {
   CheckIcon,
   ExternalLinkIcon,
@@ -9,7 +9,6 @@ import {
   MapPinIcon,
   Paperclip,
   UserIcon,
-  XIcon,
 } from 'lucide-react'
 
 import { cn } from '@/lib/utils'
@@ -39,7 +38,6 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover'
-import { Button } from '@/components/ui/button'
 
 type FieldWithType = CollectionField & { field_type: PropertyType }
 
@@ -56,6 +54,7 @@ export type FieldCellProps = {
   className?: string
   onOpenRecord?: () => void
   allFields?: CollectionFieldWithType[]
+  suppressRefresh?: boolean
 }
 
 function extractValue(values: CollectionRecordWithValues['values'], fieldId: string): Json | null {
@@ -172,6 +171,7 @@ export function FieldCell(props: FieldCellProps) {
           fieldId={field.id}
           isReadOnly={isReadOnly}
           className={className}
+          suppressRefresh={props.suppressRefresh}
         />
       )
     case 'person':
@@ -192,6 +192,7 @@ export function FieldCell(props: FieldCellProps) {
           fieldId={field.id}
           isReadOnly={isReadOnly}
           className={className}
+          suppressRefresh={props.suppressRefresh}
         />
       )
     case 'formula':
@@ -204,6 +205,7 @@ export function FieldCell(props: FieldCellProps) {
           isReadOnly={isReadOnly}
           className={className}
           computedValue={record.values[field.id] ?? null}
+          suppressRefresh={props.suppressRefresh}
         />
       )
     case 'location':

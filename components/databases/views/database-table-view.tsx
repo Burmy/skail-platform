@@ -21,7 +21,6 @@ import {
 import { CSS } from '@dnd-kit/utilities'
 
 import { cn } from '@/lib/utils'
-import { Button } from '@/components/ui/button'
 import {
   createRecordInline,
   updateRecordField,
@@ -62,6 +61,7 @@ export type DatabaseTableViewProps = {
   readOnly?: boolean
   canConfigureView?: boolean
   pageId?: string
+  embedded?: boolean
   onOpenRecord: (recordId: string) => void
   onArchiveField?: (field: CollectionFieldWithType) => void
   onSaveStateChange?: (state: 'idle' | 'saving' | 'saved' | 'error') => void
@@ -80,6 +80,7 @@ export function DatabaseTableView(props: DatabaseTableViewProps) {
     readOnly = false,
     canConfigureView = canManageSchema,
     pageId,
+    embedded = false,
     onOpenRecord,
     onArchiveField,
     onSaveStateChange,
@@ -188,7 +189,7 @@ export function DatabaseTableView(props: DatabaseTableViewProps) {
           : fields.map((f) => f.id),
         fieldOrder: persistedOrder,
       })
-      router.refresh()
+      if (!embedded) router.refresh()
     })
   }
 
@@ -253,6 +254,7 @@ export function DatabaseTableView(props: DatabaseTableViewProps) {
                     viewConfig={view.config}
                     canManageSchema={canManageSchema}
                     onArchiveField={onArchiveField}
+                    suppressRefresh={embedded}
                   />
                 ) : (
                   <DraggableHeaderCell
@@ -264,6 +266,7 @@ export function DatabaseTableView(props: DatabaseTableViewProps) {
                     viewConfig={view.config}
                     canManageSchema={canManageSchema}
                     onArchiveField={onArchiveField}
+                    suppressRefresh={embedded}
                   />
                 ),
               )}
@@ -312,6 +315,7 @@ export function DatabaseTableView(props: DatabaseTableViewProps) {
                           handleSaveCell(record, fieldId, value, crq)
                         }
                         isReadOnly={readOnly}
+                        suppressRefresh={embedded}
                       />
                     </div>
                   ))}
@@ -347,10 +351,12 @@ function HeaderLabel({
   field,
   canManageSchema,
   workspaceId,
+  suppressRefresh,
 }: {
   field: CollectionFieldWithType
   canManageSchema: boolean
   workspaceId: string
+  suppressRefresh?: boolean
 }) {
   const router = useRouter()
   const [, startTransition] = useTransition()
@@ -379,7 +385,7 @@ function HeaderLabel({
       const { updateField } = await import('@/app/databases/actions')
       await updateField({ status: 'idle' }, formData)
       setEditing(false)
-      router.refresh()
+      if (!suppressRefresh) router.refresh()
     })
   }
 
@@ -425,6 +431,7 @@ function TitleHeaderCell({
   viewConfig,
   canManageSchema,
   onArchiveField,
+  suppressRefresh,
 }: {
   width: number
   field: CollectionFieldWithType
@@ -433,13 +440,19 @@ function TitleHeaderCell({
   viewConfig: SavedViewWithConfig['config']
   canManageSchema: boolean
   onArchiveField?: (field: CollectionFieldWithType) => void
+  suppressRefresh?: boolean
 }) {
   return (
     <div
       className="sticky left-0 z-30 flex h-9 items-center gap-1 border-r bg-background px-2"
       style={{ width }}
     >
-      <HeaderLabel field={field} canManageSchema={canManageSchema} workspaceId={workspaceId} />
+      <HeaderLabel
+        field={field}
+        canManageSchema={canManageSchema}
+        workspaceId={workspaceId}
+        suppressRefresh={suppressRefresh}
+      />
       <PropertyHeaderMenu
         workspaceId={workspaceId}
         viewId={viewId}
@@ -460,6 +473,7 @@ function DraggableHeaderCell(props: {
   viewConfig: SavedViewWithConfig['config']
   canManageSchema: boolean
   onArchiveField?: (field: CollectionFieldWithType) => void
+  suppressRefresh?: boolean
 }) {
   const {
     width,
@@ -469,6 +483,7 @@ function DraggableHeaderCell(props: {
     viewConfig,
     canManageSchema,
     onArchiveField,
+    suppressRefresh,
   } = props
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: field.id,
@@ -493,7 +508,12 @@ function DraggableHeaderCell(props: {
       >
         ⋮⋮
       </span>
-      <HeaderLabel field={field} canManageSchema={canManageSchema} workspaceId={workspaceId} />
+      <HeaderLabel
+        field={field}
+        canManageSchema={canManageSchema}
+        workspaceId={workspaceId}
+        suppressRefresh={suppressRefresh}
+      />
       <PropertyHeaderMenu
         workspaceId={workspaceId}
         viewId={viewId}

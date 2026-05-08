@@ -88,10 +88,15 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: uploadError.message }, { status: 500 })
   }
 
+  const { data: signed } = await admin.storage
+    .from('collection-files')
+    .createSignedUrl(storagePath, 60 * 5)
+
   return NextResponse.json({
     storagePath,
     filename: safeName,
     mimeType: file.type,
     sizeBytes: file.size,
+    signedUrl: signed?.signedUrl ?? null,
   })
 }

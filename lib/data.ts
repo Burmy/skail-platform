@@ -1,7 +1,8 @@
 import { Agent, Collection, ActivityItem, ChecklistItem, Widget } from './types'
 
-// Top-of-sidebar single link.
-export const homeNav = { label: 'Home', href: '/pages', icon: 'Home' as const }
+// Top-of-sidebar single link. The workspace-aware sidebar resolves this to
+// `/workspaces/[workspaceId]` when a workspace is active.
+export const homeNav = { label: 'Home', href: '/', icon: 'Home' as const }
 
 // Bottom "SKAIL Apps" section.
 export const skailApps = [

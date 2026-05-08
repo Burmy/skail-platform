@@ -1,7 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState, useTransition } from 'react'
-import { useRouter } from 'next/navigation'
+import { useEffect, useMemo, useRef, useState, useTransition } from 'react'
 import { ImageIcon, Loader2Icon, UploadIcon } from 'lucide-react'
 
 import { cn } from '@/lib/utils'
@@ -19,11 +18,11 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Settings2Icon } from 'lucide-react'
-import { updateGalleryConfig } from '@/app/databases/actions'
+import { updateGalleryConfig, updateRecordField } from '@/app/databases/actions'
 import type { CollectionFieldWithType } from '@/lib/databases/queries'
 import type { CollectionRecordWithValues } from '@/lib/properties/types'
 import type { Json } from '@/lib/supabase/database.types'
-import type { SavedViewWithConfig } from '@/lib/views/types'
+import type { SavedViewWithConfig, ViewConfig } from '@/lib/views/types'
 
 import { FieldCell } from '../field-cell'
 import type { RecordMutators } from '../hooks/use-optimistic-records'
@@ -36,17 +35,32 @@ const SIZE_TO_PX: Record<'sm' | 'md' | 'lg', number> = {
 
 export type GalleryViewProps = {
   workspaceId: string
+  collectionId: string
   view: SavedViewWithConfig
   fields: CollectionFieldWithType[]
   records: CollectionRecordWithValues[]
   mutators?: RecordMutators
   titleFieldId: string | null
+  embedded?: boolean
+  canConfigureView?: boolean
+  onViewConfigPatch?: (patch: Partial<ViewConfig>) => void
   onOpenRecord: (recordId: string) => void
 }
 
 export function GalleryView(props: GalleryViewProps) {
-  const { workspaceId, view, fields, records, mutators, titleFieldId, onOpenRecord } = props
-  const router = useRouter()
+  const {
+    workspaceId,
+    collectionId,
+    view,
+    fields,
+    records,
+    mutators,
+    titleFieldId,
+    embedded = false,
+    canConfigureView = true,
+    onViewConfigPatch,
+    onOpenRecord,
+  } = props
   const [, startTransition] = useTransition()
 
   const cfg = view.config.gallery
@@ -54,11 +68,19 @@ export function GalleryView(props: GalleryViewProps) {
   const coverFit = cfg?.coverFit ?? 'cover'
   const coverFieldId = cfg?.coverFieldId ?? null
   const visibleFieldIds = cfg?.visibleFieldIds ?? []
+  const [createdCoverField, setCreatedCoverField] =
+    useState<CollectionFieldWithType | null>(null)
+  const allFields = useMemo(() => {
+    if (!createdCoverField || fields.some((field) => field.id === createdCoverField.id)) {
+      return fields
+    }
+    return [...fields, createdCoverField]
+  }, [createdCoverField, fields])
 
-  const eligibleCoverFields = fields.filter((f) =>
+  const eligibleCoverFields = allFields.filter((f) =>
     ['file', 'url'].includes(f.field_type),
   )
-  const coverField = coverFieldId ? fields.find((f) => f.id === coverFieldId) : null
+  const coverField = coverFieldId ? allFields.find((f) => f.id === coverFieldId) : null
   const coverFieldType =
     coverField?.field_type === 'file' || coverField?.field_type === 'url'
       ? coverField.field_type
@@ -104,16 +126,20 @@ export function GalleryView(props: GalleryViewProps) {
   }, [coverFieldType, coverFieldId, workspaceId, records])
 
   function persist(patch: Partial<NonNullable<typeof cfg>>) {
+    const nextGallery = {
+      coverFieldId: patch.coverFieldId ?? coverFieldId,
+      coverFit: patch.coverFit ?? coverFit,
+      cardSize: patch.cardSize ?? cardSize,
+      visibleFieldIds: patch.visibleFieldIds ?? visibleFieldIds,
+    }
+    onViewConfigPatch?.({ gallery: nextGallery })
+    if (embedded || !canConfigureView) return
     startTransition(async () => {
       await updateGalleryConfig({
         workspaceId,
         viewId: view.id,
-        coverFieldId: patch.coverFieldId ?? coverFieldId,
-        coverFit: patch.coverFit ?? coverFit,
-        cardSize: patch.cardSize ?? cardSize,
-        visibleFieldIds: patch.visibleFieldIds ?? visibleFieldIds,
+        ...nextGallery,
       })
-      router.refresh()
     })
   }
 
@@ -176,6 +202,16 @@ export function GalleryView(props: GalleryViewProps) {
           </PopoverContent>
         </Popover>
       </div>
+      {eligibleCoverFields.length === 0 && canConfigureView ? (
+        <GalleryCoverSetup
+          workspaceId={workspaceId}
+          collectionId={collectionId}
+          onCreated={(field) => {
+            setCreatedCoverField(field)
+            persist({ coverFieldId: field.id })
+          }}
+        />
+      ) : null}
       <div className="flex-1 overflow-y-auto p-4">
         <div
           className="grid gap-3"
@@ -187,7 +223,7 @@ export function GalleryView(props: GalleryViewProps) {
             <GalleryCard
               key={record.id}
               record={record}
-              fields={fields}
+              fields={allFields}
               visibleFieldIds={view.config.visibleFieldIds}
               titleFieldId={titleFieldId}
               coverFieldId={coverFieldId}
@@ -198,7 +234,9 @@ export function GalleryView(props: GalleryViewProps) {
               mutators={mutators}
               fileCoverUrl={fileCoverUrls.get(record.id) ?? null}
               onOpen={() => onOpenRecord(record.id)}
-              onUploaded={() => router.refresh()}
+              onUploaded={(url) => {
+                if (url) setFileCoverUrls((current) => new Map(current).set(record.id, url))
+              }}
             />
           ))}
         </div>
@@ -207,6 +245,53 @@ export function GalleryView(props: GalleryViewProps) {
             No records yet.
           </div>
         ) : null}
+      </div>
+    </div>
+  )
+}
+
+function GalleryCoverSetup({
+  workspaceId,
+  collectionId,
+  onCreated,
+}: {
+  workspaceId: string
+  collectionId: string
+  onCreated: (field: CollectionFieldWithType) => void
+}) {
+  const [pending, startTransition] = useTransition()
+
+  return (
+    <div className="border-b bg-muted/20 px-3 py-2">
+      <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-dashed bg-background px-3 py-2">
+        <div>
+          <p className="text-sm font-medium">Add a Cover image property</p>
+          <p className="text-xs text-muted-foreground">
+            Gallery cards need an image field before uploads can be shown.
+          </p>
+        </div>
+        <Button
+          size="sm"
+          disabled={pending}
+          onClick={() => {
+            startTransition(async () => {
+              const fd = new FormData()
+              fd.set('workspaceId', workspaceId)
+              fd.set('collectionId', collectionId)
+              fd.set('name', 'Cover')
+              fd.set('fieldType', 'file')
+              fd.set('semanticRole', 'cover_image')
+              fd.set('options', '')
+              const { createField } = await import('@/app/databases/actions')
+              const result = await createField({ status: 'idle' }, fd)
+              if (result.status === 'success' && result.field) {
+                onCreated(result.field as CollectionFieldWithType)
+              }
+            })
+          }}
+        >
+          Add Cover
+        </Button>
       </div>
     </div>
   )
@@ -271,14 +356,19 @@ function GalleryCard({
   mutators?: RecordMutators
   fileCoverUrl: string | null
   onOpen: () => void
-  onUploaded?: () => void
+  onUploaded?: (previewUrl: string | null) => void
 }) {
   const url = coverFieldType === 'file' ? fileCoverUrl : readCoverUrl(record, coverFieldId)
   const coverField = coverFieldId ? fields.find((f) => f.id === coverFieldId) : null
-  const supportsDropUpload =
-    !!coverField && (coverField.field_type === 'file' || coverField.field_type === 'url')
+  const supportsFileUpload = !!coverField && coverField.field_type === 'file'
+  const supportsUrlInput = !!coverField && coverField.field_type === 'url'
   const [uploading, setUploading] = useState(false)
   const [dragOver, setDragOver] = useState(false)
+  const [urlInputOpen, setUrlInputOpen] = useState(false)
+  const [urlDraft, setUrlDraft] = useState('')
+  const [localPreviewUrl, setLocalPreviewUrl] = useState<string | null>(null)
+  const fileInputRef = useRef<HTMLInputElement | null>(null)
+  const displayUrl = localPreviewUrl ?? url
 
   const visibleSet = new Set(
     visibleFieldIds.length > 0 ? visibleFieldIds : fields.map((f) => f.id),
@@ -293,10 +383,12 @@ function GalleryCard({
     )
     .slice(0, 4)
 
-  async function handleFileDrop(file: File) {
-    if (!coverField) return
+  async function handleFileUpload(file: File) {
+    if (!coverField || coverField.field_type !== 'file') return
     if (!file.type.startsWith('image/')) return
     setUploading(true)
+    const objectUrl = URL.createObjectURL(file)
+    setLocalPreviewUrl(objectUrl)
     try {
       const fd = new FormData()
       fd.set('workspaceId', workspaceId)
@@ -309,6 +401,7 @@ function GalleryCard({
       })
       const json = (await resp.json()) as {
         storagePath?: string
+        signedUrl?: string
         filename?: string
         mimeType?: string | null
         sizeBytes?: number | null
@@ -318,43 +411,55 @@ function GalleryCard({
         throw new Error(json.error ?? 'upload failed')
       }
 
-      if (coverField.field_type === 'file') {
-        // Persist file metadata; the gallery refreshes its file URL map.
-        const { uploadFileMetadata } = await import('@/app/databases/actions')
-        await uploadFileMetadata({
-          workspaceId,
-          recordId: record.id,
-          fieldId: coverField.id,
-          source: 'upload',
-          storagePath: json.storagePath,
-          filename: json.filename ?? file.name,
-          mimeType: json.mimeType ?? file.type,
-          sizeBytes: json.sizeBytes ?? file.size,
-        })
-      }
-      onUploaded?.()
+      const { uploadFileMetadata } = await import('@/app/databases/actions')
+      await uploadFileMetadata({
+        workspaceId,
+        recordId: record.id,
+        fieldId: coverField.id,
+        source: 'upload',
+        storagePath: json.storagePath,
+        filename: json.filename ?? file.name,
+        mimeType: json.mimeType ?? file.type,
+        sizeBytes: json.sizeBytes ?? file.size,
+      })
+      onUploaded?.(json.signedUrl ?? null)
     } finally {
       setUploading(false)
+      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 30_000)
     }
   }
 
+  async function saveUrlCover() {
+    if (!coverField || coverField.field_type !== 'url') return
+    const trimmed = urlDraft.trim()
+    if (!/^https?:\/\//i.test(trimmed)) return
+    setLocalPreviewUrl(trimmed)
+    mutators?.setFieldValue(record.id, coverField.id, trimmed)
+    setUrlInputOpen(false)
+    setUrlDraft('')
+    await updateRecordField({
+      workspaceId,
+      recordId: record.id,
+      fieldId: coverField.id,
+      value: trimmed,
+    })
+  }
+
   return (
-    <button
-      type="button"
-      onClick={onOpen}
+    <div
       onDragOver={(e) => {
-        if (supportsDropUpload) {
+        if (supportsFileUpload) {
           e.preventDefault()
           setDragOver(true)
         }
       }}
       onDragLeave={() => setDragOver(false)}
       onDrop={(e) => {
-        if (!supportsDropUpload) return
+        if (!supportsFileUpload) return
         e.preventDefault()
         setDragOver(false)
         const file = e.dataTransfer.files[0]
-        if (file) void handleFileDrop(file)
+        if (file) void handleFileUpload(file)
       }}
       className={cn(
         'group flex flex-col overflow-hidden rounded-md border bg-background text-left transition-colors hover:border-foreground/30',
@@ -362,14 +467,36 @@ function GalleryCard({
       )}
     >
       <div
+        role={supportsFileUpload || supportsUrlInput ? 'button' : undefined}
+        tabIndex={supportsFileUpload || supportsUrlInput ? 0 : undefined}
+        aria-label={
+          supportsFileUpload || supportsUrlInput ? 'Add gallery cover image' : undefined
+        }
+        onPointerDown={(event) => event.stopPropagation()}
+        onClick={(event) => {
+          event.stopPropagation()
+          if (supportsFileUpload) fileInputRef.current?.click()
+          else if (supportsUrlInput) setUrlInputOpen(true)
+          else onOpen()
+        }}
+        onKeyDown={(event) => {
+          if (!supportsFileUpload && !supportsUrlInput) return
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault()
+            if (supportsFileUpload) fileInputRef.current?.click()
+            else setUrlInputOpen(true)
+          }
+        }}
         className={cn(
           'relative flex aspect-4/3 w-full items-center justify-center overflow-hidden border-b bg-muted/40',
+          (supportsFileUpload || supportsUrlInput) && 'cursor-pointer',
         )}
+        data-gallery-cover-control
       >
-        {url ? (
+        {displayUrl ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
-            src={url}
+            src={displayUrl}
             alt=""
             className={cn(
               'h-full w-full',
@@ -381,26 +508,81 @@ function GalleryCard({
         ) : (
           <div className="flex flex-col items-center gap-1 text-muted-foreground/60">
             <ImageIcon className="size-8" />
-            {supportsDropUpload ? (
+            {supportsFileUpload || supportsUrlInput ? (
               <span className="text-[10px]">
-                {dragOver ? 'Drop to upload' : 'Drop image here'}
+                {supportsFileUpload
+                  ? dragOver
+                    ? 'Drop to upload'
+                    : 'Drop image here'
+                  : 'Paste image URL'}
               </span>
             ) : null}
           </div>
         )}
+        {supportsFileUpload ? (
+          <>
+            <input
+              ref={fileInputRef}
+              hidden
+              type="file"
+              accept="image/*"
+              onChange={(event) => {
+                const file = event.target.files?.[0]
+                event.target.value = ''
+                if (file) void handleFileUpload(file)
+              }}
+            />
+            <div className="absolute right-2 top-2 inline-flex h-7 items-center gap-1 rounded-md border bg-background/90 px-2 text-[11px] font-medium opacity-0 shadow-sm transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+              <UploadIcon className="size-3" />
+              Cover
+            </div>
+          </>
+        ) : null}
+        {urlInputOpen && supportsUrlInput ? (
+          <div
+            className="absolute inset-x-2 bottom-2 rounded-md border bg-background/95 p-2 shadow-sm"
+            onClick={(event) => event.stopPropagation()}
+            onPointerDown={(event) => event.stopPropagation()}
+          >
+            <input
+              autoFocus
+              value={urlDraft}
+              onChange={(event) => setUrlDraft(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') {
+                  event.preventDefault()
+                  void saveUrlCover()
+                }
+                if (event.key === 'Escape') {
+                  setUrlInputOpen(false)
+                  setUrlDraft('')
+                }
+              }}
+              placeholder="https://image-url..."
+              className="h-7 w-full rounded-sm border bg-background px-2 text-xs outline-none focus:ring-1 focus:ring-ring"
+            />
+          </div>
+        ) : null}
         {uploading ? (
           <div className="absolute inset-0 flex items-center justify-center bg-background/70 text-xs text-muted-foreground">
             <Loader2Icon className="mr-1 size-3.5 animate-spin" />
-            Uploading…
+            Uploading...
           </div>
         ) : null}
       </div>
       <div className={cn('flex flex-col gap-1 p-2', cardSize === 'lg' && 'p-3')}>
-        <p className="truncate text-sm font-medium">{record.title ?? 'Untitled'}</p>
+        <button
+          type="button"
+          onClick={onOpen}
+          className="truncate text-left text-sm font-medium hover:underline"
+        >
+          {record.title ?? 'Untitled'}
+        </button>
         {previewFields.length > 0 ? (
           <div
             className="mt-0.5 flex flex-col gap-1"
             onPointerDown={(e) => e.stopPropagation()}
+            data-gallery-field-control
           >
             {previewFields.map((field) => (
               <div key={field.id} className="flex items-center gap-1.5 text-xs">
@@ -421,6 +603,6 @@ function GalleryCard({
           </div>
         ) : null}
       </div>
-    </button>
+    </div>
   )
 }
