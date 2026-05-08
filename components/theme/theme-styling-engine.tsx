@@ -1,6 +1,7 @@
 'use client'
 
 import { useActionState, useEffect, useMemo, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import {
   AlertTriangle,
   Code,
@@ -9,6 +10,7 @@ import {
   LayoutTemplate,
   Monitor,
   Paintbrush,
+  RotateCcw,
   Save,
   ShieldCheck,
   Sparkles,
@@ -17,6 +19,7 @@ import {
 } from 'lucide-react'
 
 import {
+  resetThemeSettings,
   updatePageStyleSettings,
   updateThemeSettings,
   updateViewStyleSettings,
@@ -98,7 +101,7 @@ function NativeSelect({
   return (
     <select
       className={cn(
-        'border-input bg-background h-9 rounded-md border px-3 text-sm shadow-xs outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50',
+        'h-10 rounded-md border border-input bg-background px-3 text-sm outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50',
         className,
       )}
       {...props}
@@ -208,6 +211,10 @@ function contrastRatio(first: string, second: string) {
   return (lighter + 0.05) / (darker + 0.05)
 }
 
+function readableForeground(background: string) {
+  return luminance(background) > 0.45 ? '#1a1a1a' : '#fbfaf8'
+}
+
 function ContrastWarning({
   foreground,
   background,
@@ -289,8 +296,8 @@ export function ThemeStylingEngine({
   )
 
   return (
-    <div className="flex h-[calc(100vh-3.5rem)] min-h-0">
-      <aside className="flex w-72 shrink-0 flex-col border-r bg-card p-4">
+    <div className="flex min-h-[calc(100dvh-3.5rem)] flex-col lg:h-[calc(100dvh-3.5rem)] lg:min-h-0 lg:flex-row">
+      <aside className="flex w-full shrink-0 flex-col border-b bg-card p-4 lg:w-72 lg:border-b-0 lg:border-r">
         <div>
           <h2 className="text-sm font-semibold">Theme + Styling</h2>
           <p className="text-xs text-muted-foreground">
@@ -332,7 +339,7 @@ export function ThemeStylingEngine({
         </div>
       </aside>
 
-      <section className="min-w-0 flex-1 overflow-auto p-6">
+      <section className="min-w-0 flex-1 overflow-auto p-4 lg:p-6">
         {section === 'theme' && (
           <WorkspaceThemeSection
             fallbackThemeTokens={fallbackThemeTokens}
@@ -386,8 +393,13 @@ function WorkspaceThemeSection({
   permissions: ThemePermissions
 }) {
   const [scope, setScope] = useState<'shared' | 'personal'>('shared')
+  const router = useRouter()
   const [state, action, isPending] = useActionState(
     updateThemeSettings,
+    initialActionState,
+  )
+  const [resetState, resetAction, isResetting] = useActionState(
+    resetThemeSettings,
     initialActionState,
   )
   const tokens = themeTokensForScope(
@@ -406,6 +418,16 @@ function WorkspaceThemeSection({
   useEffect(() => {
     setPreviewTokens(tokens)
   }, [tokens])
+
+  useEffect(() => {
+    if (resetState.status === 'success') {
+      setScope('shared')
+      setPreviewTokens(fallbackThemeTokens)
+      router.refresh()
+    }
+  }, [fallbackThemeTokens, resetState.status, router])
+
+  const buttonForeground = readableForeground(previewTokens.buttonColor)
 
   function updatePreviewToken(key: keyof ThemeTokens, value: string) {
     setPreviewTokens((currentTokens) => ({
@@ -506,11 +528,31 @@ function WorkspaceThemeSection({
               />
             </div>
 
-            <Button disabled={isPending || sharedDisabled || personalDisabled} type="submit">
-              <Save data-icon="inline-start" />
-              Save theme
-            </Button>
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+              <Button
+                disabled={isPending || sharedDisabled || personalDisabled}
+                type="submit"
+              >
+                <Save data-icon="inline-start" />
+                Save theme
+              </Button>
+              <Button
+                disabled={isResetting || !permissions.canEditSharedTheme}
+                formAction={resetAction}
+                formNoValidate
+                type="submit"
+                variant="outline"
+              >
+                <RotateCcw data-icon="inline-start" />
+                Reset to defaults
+              </Button>
+            </div>
             <ActionMessage state={state} />
+            <ActionMessage state={resetState} />
+            <p className="text-xs leading-5 text-muted-foreground">
+              Reset clears workspace theme, page style, widget style, view
+              style, and your personal theme override so default tokens apply.
+            </p>
           </CardContent>
         </Card>
       </form>
@@ -519,7 +561,7 @@ function WorkspaceThemeSection({
         <ThemePreview tokens={previewTokens} />
         <ContrastWarning
           background={previewTokens.buttonColor}
-          foreground="#ffffff"
+          foreground={buttonForeground}
           label="Button text"
         />
         <ContrastWarning
@@ -556,37 +598,64 @@ function FontSelect({
 }
 
 function ThemePreview({ tokens }: { tokens: ThemeTokens }) {
+  const backgroundForeground = readableForeground(tokens.backgroundColor)
+  const cardForeground = readableForeground(tokens.cardColor)
+  const accentForeground = readableForeground(tokens.accentColor)
+  const buttonForeground = readableForeground(tokens.buttonColor)
+  const highlightForeground = readableForeground(tokens.highlightColor)
+
   return (
-    <Card style={{ backgroundColor: tokens.backgroundColor }}>
+    <Card
+      style={{
+        backgroundColor: tokens.backgroundColor,
+        color: backgroundForeground,
+      }}
+    >
       <CardContent className="p-4">
         <div
           className="rounded-md border p-4"
           style={{
             backgroundColor: tokens.cardColor,
             borderColor: tokens.accentColor,
+            color: cardForeground,
           }}
         >
           <div className="flex items-center gap-3">
             <div
-              className="flex size-10 items-center justify-center rounded-md text-sm font-semibold text-white"
-              style={{ backgroundColor: tokens.accentColor }}
+              className="flex size-10 items-center justify-center rounded-md text-sm font-semibold"
+              style={{
+                backgroundColor: tokens.accentColor,
+                color: accentForeground,
+              }}
             >
               S
             </div>
             <div>
-              <div className="font-semibold text-white">Portal preview</div>
+              <div className="font-semibold">Portal preview</div>
               <a className="text-sm" style={{ color: tokens.linkColor }}>
                 Workspace link
               </a>
             </div>
           </div>
-          <p className="mt-4 text-sm text-zinc-200">
+          <p className="mt-4 text-sm">
             This preview uses sanitized color tokens.{' '}
-            <span className="rounded px-1 text-zinc-950" style={{ backgroundColor: tokens.highlightColor }}>
+            <span
+              className="rounded px-1"
+              style={{
+                backgroundColor: tokens.highlightColor,
+                color: highlightForeground,
+              }}
+            >
               Highlight
             </span>
           </p>
-          <Button className="mt-4 text-white" style={{ backgroundColor: tokens.buttonColor }}>
+          <Button
+            className="mt-4"
+            style={{
+              backgroundColor: tokens.buttonColor,
+              color: buttonForeground,
+            }}
+          >
             Preview action
           </Button>
         </div>
@@ -1000,9 +1069,18 @@ function WidgetStylePreview({ style }: { style: typeof DEFAULT_WIDGET_STYLE }) {
 }
 
 function ViewStylePreview({ style }: { style: typeof DEFAULT_VIEW_STYLE }) {
+  const headerForeground = readableForeground(style.tableHeaderColor)
+  const eventForeground = readableForeground(style.calendarEventColor)
+
   return (
     <div className="overflow-hidden rounded-md border">
-      <div className="grid grid-cols-3 text-sm font-medium text-white" style={{ backgroundColor: style.tableHeaderColor }}>
+      <div
+        className="grid grid-cols-3 text-sm font-medium"
+        style={{
+          backgroundColor: style.tableHeaderColor,
+          color: headerForeground,
+        }}
+      >
         <div className="p-2">Name</div>
         <div className="p-2">Status</div>
         <div className="p-2">Date</div>
@@ -1010,7 +1088,12 @@ function ViewStylePreview({ style }: { style: typeof DEFAULT_VIEW_STYLE }) {
       <div className={cn('grid grid-cols-3 text-sm', style.density === 'compact' ? 'p-2' : 'p-4')}>
         <div>Example record</div>
         <div>
-          <Badge style={{ backgroundColor: style.calendarEventColor }}>
+          <Badge
+            style={{
+              backgroundColor: style.calendarEventColor,
+              color: eventForeground,
+            }}
+          >
             {style.statusColorPalette}
           </Badge>
         </div>

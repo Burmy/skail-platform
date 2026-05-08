@@ -1,177 +1,144 @@
 'use client'
 
-import { DashboardLayout } from '@/components/dashboard-layout'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
-import { Switch } from '@/components/ui/switch'
-import { 
-  Plus, 
-  Zap,
-  Mail,
+import {
+  ArrowRight,
   Bell,
   Clock,
   Database,
-  ArrowRight,
-  Play,
-  Pause,
+  Mail,
+  Plus,
   Settings,
+  Zap,
 } from 'lucide-react'
-import { cn } from '@/lib/utils'
+
+import { DashboardLayout } from '@/components/dashboard-layout'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { Card, CardContent } from '@/components/ui/card'
+import { Switch } from '@/components/ui/switch'
 
 const automations = [
   {
     id: '1',
     name: 'Welcome Email',
-    description: 'Send welcome email when new client is added',
+    description: 'Send a welcome email when a new client record is added.',
     trigger: 'New record in Clients',
     action: 'Send email',
     enabled: true,
-    runs: 142,
   },
   {
     id: '2',
     name: 'Task Reminder',
-    description: 'Send reminder 24h before task due date',
+    description: 'Send a reminder before a task reaches its due date.',
     trigger: 'Task due date',
     action: 'Send notification',
     enabled: true,
-    runs: 89,
   },
   {
     id: '3',
     name: 'Weekly Report',
-    description: 'Generate and send weekly project report',
-    trigger: 'Every Monday 9am',
+    description: 'Prepare a weekly project report for review.',
+    trigger: 'Every Monday',
     action: 'Generate report',
     enabled: false,
-    runs: 12,
   },
   {
     id: '4',
     name: 'Status Update',
-    description: 'Notify team when project status changes',
+    description: 'Notify the workspace when a project status changes.',
     trigger: 'Status field updated',
-    action: 'Send Slack message',
+    action: 'Send notification',
     enabled: true,
-    runs: 256,
   },
 ]
 
+function ActionIcon({ action }: { action: string }) {
+  if (action.toLowerCase().includes('email')) {
+    return <Mail className="size-4 text-muted-foreground" />
+  }
+
+  if (action.toLowerCase().includes('report')) {
+    return <Clock className="size-4 text-muted-foreground" />
+  }
+
+  return <Bell className="size-4 text-muted-foreground" />
+}
+
 export default function AutomationsPage() {
   return (
-    <DashboardLayout 
-      title="Automations" 
-      description="Automate repetitive tasks"
+    <DashboardLayout
       actions={
-        <Button className="gap-2">
-          <Plus className="h-4 w-4" />
+        <Button disabled>
+          <Plus data-icon="inline-start" />
           Create Automation
         </Button>
       }
+      description="n8n-backed workflow placeholders"
+      title="Automations"
     >
-      <div className="p-6 space-y-6">
-        {/* Stats */}
-        <div className="grid gap-4 md:grid-cols-3">
-          <Card className="border-border bg-card">
-            <CardContent className="p-6">
-              <div className="flex items-center gap-4">
-                <div className="h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center">
-                  <Zap className="h-6 w-6 text-primary" />
-                </div>
-                <div>
-                  <p className="text-2xl font-bold text-foreground">
-                    {automations.filter(a => a.enabled).length}
-                  </p>
-                  <p className="text-sm text-muted-foreground">Active Automations</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-          
-          <Card className="border-border bg-card">
-            <CardContent className="p-6">
-              <div className="flex items-center gap-4">
-                <div className="h-12 w-12 rounded-full bg-success/10 flex items-center justify-center">
-                  <Play className="h-6 w-6 text-success" />
-                </div>
-                <div>
-                  <p className="text-2xl font-bold text-foreground">
-                    {automations.reduce((acc, a) => acc + a.runs, 0)}
-                  </p>
-                  <p className="text-sm text-muted-foreground">Total Runs</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-          
-          <Card className="border-border bg-card">
-            <CardContent className="p-6">
-              <div className="flex items-center gap-4">
-                <div className="h-12 w-12 rounded-full bg-chart-2/10 flex items-center justify-center">
-                  <Clock className="h-6 w-6 text-chart-2" />
-                </div>
-                <div>
-                  <p className="text-2xl font-bold text-foreground">24.5h</p>
-                  <p className="text-sm text-muted-foreground">Time Saved</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+      <div className="mx-auto flex w-full max-w-6xl flex-col gap-5 px-4 py-6 lg:px-6">
+        <div className="rounded-lg border border-dashed bg-surface-soft p-5">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div className="max-w-2xl">
+              <h2 className="text-base font-semibold">Automation library</h2>
+              <p className="mt-1 text-sm leading-6 text-muted-foreground">
+                These are static setup examples. Production automation will run
+                through signed n8n webhooks after that module is connected.
+              </p>
+            </div>
+            <Badge variant="outline">Placeholder</Badge>
+          </div>
         </div>
 
-        {/* Automations List */}
-        <div className="space-y-4">
+        <div className="space-y-3">
           {automations.map((automation) => (
-            <Card key={automation.id} className="border-border bg-card">
-              <CardContent className="p-6">
-                <div className="flex items-start justify-between">
-                  <div className="flex items-start gap-4">
-                    <div className={cn(
-                      'h-10 w-10 rounded-lg flex items-center justify-center',
-                      automation.enabled ? 'bg-primary/10' : 'bg-secondary'
-                    )}>
-                      <Zap className={cn(
-                        'h-5 w-5',
-                        automation.enabled ? 'text-primary' : 'text-muted-foreground'
-                      )} />
+            <Card key={automation.id}>
+              <CardContent className="p-4">
+                <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                  <div className="flex min-w-0 items-start gap-3">
+                    <div className="flex size-10 shrink-0 items-center justify-center rounded-md bg-secondary">
+                      <Zap className="size-4 text-muted-foreground" />
                     </div>
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <h3 className="font-semibold text-foreground">{automation.name}</h3>
-                        {automation.enabled ? (
-                          <Badge variant="secondary" className="bg-success/10 text-success">Active</Badge>
-                        ) : (
-                          <Badge variant="secondary">Paused</Badge>
-                        )}
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <h3 className="font-semibold">{automation.name}</h3>
+                        <Badge
+                          variant={automation.enabled ? 'secondary' : 'outline'}
+                        >
+                          {automation.enabled ? 'Active' : 'Paused'}
+                        </Badge>
                       </div>
-                      <p className="text-sm text-muted-foreground mt-1">{automation.description}</p>
-                      
-                      <div className="flex items-center gap-6 mt-4">
-                        <div className="flex items-center gap-2 text-sm">
-                          <Database className="h-4 w-4 text-muted-foreground" />
-                          <span className="text-muted-foreground">{automation.trigger}</span>
-                        </div>
-                        <ArrowRight className="h-4 w-4 text-muted-foreground" />
-                        <div className="flex items-center gap-2 text-sm">
-                          {automation.action.includes('email') && <Mail className="h-4 w-4 text-muted-foreground" />}
-                          {automation.action.includes('notification') && <Bell className="h-4 w-4 text-muted-foreground" />}
-                          {automation.action.includes('report') && <Clock className="h-4 w-4 text-muted-foreground" />}
-                          {automation.action.includes('Slack') && <Bell className="h-4 w-4 text-muted-foreground" />}
-                          <span className="text-muted-foreground">{automation.action}</span>
-                        </div>
+                      <p className="mt-1 text-sm text-muted-foreground">
+                        {automation.description}
+                      </p>
+
+                      <div className="mt-4 flex flex-col gap-2 text-sm text-muted-foreground sm:flex-row sm:items-center sm:gap-3">
+                        <span className="flex items-center gap-2">
+                          <Database className="size-4" />
+                          {automation.trigger}
+                        </span>
+                        <ArrowRight className="hidden size-4 sm:block" />
+                        <span className="flex items-center gap-2">
+                          <ActionIcon action={automation.action} />
+                          {automation.action}
+                        </span>
                       </div>
                     </div>
                   </div>
-                  
-                  <div className="flex items-center gap-4">
-                    <div className="text-right">
-                      <p className="text-sm font-medium text-foreground">{automation.runs} runs</p>
-                      <p className="text-xs text-muted-foreground">This month</p>
-                    </div>
-                    <Switch checked={automation.enabled} />
-                    <Button variant="ghost" size="icon" className="h-8 w-8">
-                      <Settings className="h-4 w-4" />
+
+                  <div className="flex items-center gap-3 lg:justify-end">
+                    <Switch
+                      aria-label={`${automation.name} enabled status`}
+                      defaultChecked={automation.enabled}
+                      disabled
+                    />
+                    <Button
+                      aria-label={`Configure ${automation.name}`}
+                      disabled
+                      size="icon"
+                      variant="ghost"
+                    >
+                      <Settings />
                     </Button>
                   </div>
                 </div>

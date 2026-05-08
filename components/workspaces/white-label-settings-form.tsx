@@ -47,7 +47,7 @@ export function WhiteLabelSettingsForm({
     initialState,
   )
   const [accentColor, setAccentColor] = useState(
-    workspace.accent_color ?? '#7c3aed',
+    workspace.accent_color ?? '#5645d4',
   )
   const [hideBranding, setHideBranding] = useState(
     Boolean(workspace.hide_skail_branding),

@@ -100,35 +100,35 @@ export const DEFAULT_THEME_TOKENS: ThemeTokens = {
   brandFont: 'inter',
   headingFont: 'inter',
   bodyFont: 'inter',
-  accentColor: '#4f7cff',
-  backgroundColor: '#0f0f10',
-  cardColor: '#18181b',
-  buttonColor: '#4f7cff',
-  linkColor: '#8fb3ff',
-  highlightColor: '#fef08a',
+  accentColor: '#7c6ee6',
+  backgroundColor: '#fbfaf8',
+  cardColor: '#ffffff',
+  buttonColor: '#5645d4',
+  linkColor: '#4f46c7',
+  highlightColor: '#fff2a8',
 }
 
 export const DEFAULT_PAGE_STYLE: PageStyle = {
-  pageBackgroundColor: '#0f0f10',
-  sectionBackgroundColor: '#18181b',
+  pageBackgroundColor: '#fbfaf8',
+  sectionBackgroundColor: '#ffffff',
   spacingDensity: 'standard',
   logoImageUrl: '',
 }
 
 export const DEFAULT_WIDGET_STYLE: WidgetStyle = {
-  backgroundColor: '#18181b',
-  textColor: '#f4f4f5',
+  backgroundColor: '#ffffff',
+  textColor: '#1a1a1a',
   border: 'subtle',
   roundedCorners: 'md',
   shadow: 'none',
-  headerColor: '#27272a',
+  headerColor: '#f4f2ee',
   density: 'comfortable',
 }
 
 export const DEFAULT_VIEW_STYLE: ViewStyle = {
-  tableHeaderColor: '#27272a',
-  kanbanColumnColor: '#18181b',
-  calendarEventColor: '#4f7cff',
+  tableHeaderColor: '#f4f2ee',
+  kanbanColumnColor: '#ffffff',
+  calendarEventColor: '#5645d4',
   galleryCardStyle: 'outlined',
   statusColorPalette: 'default',
   density: 'comfortable',

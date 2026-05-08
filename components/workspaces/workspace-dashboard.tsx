@@ -77,7 +77,7 @@ export function WorkspaceDashboard({
   const brandName = workspace.brand_name ?? workspace.name
 
   return (
-    <div className="flex flex-col gap-6 p-6">
+    <div className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-6 lg:px-6">
       <div className="flex flex-col justify-between gap-4 md:flex-row md:items-center">
         <div className="flex flex-col gap-2">
           <div className="flex items-center gap-3">
@@ -97,19 +97,19 @@ export function WorkspaceDashboard({
         </Button>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
         {stats.map((stat) => {
           const Icon = stat.icon
           return (
-            <Card key={stat.key}>
-              <CardHeader className="flex flex-row items-center justify-between pb-2">
-                <CardTitle className="text-muted-foreground text-sm font-medium">
+            <Card className="bg-card/80" key={stat.key}>
+              <CardHeader className="flex flex-row items-center justify-between pb-1">
+                <CardTitle className="text-sm font-medium text-muted-foreground">
                   {stat.label}
                 </CardTitle>
                 <Icon className="text-muted-foreground" />
               </CardHeader>
               <CardContent>
-                <div className="text-3xl font-semibold">
+                <div className="text-2xl font-semibold">
                   {overview[stat.key]}
                 </div>
               </CardContent>
@@ -131,14 +131,14 @@ export function WorkspaceDashboard({
               <div className="flex flex-col gap-3">
                 {overview.recentCollections.map((collection) => (
                   <div
-                    className="flex items-center gap-4 rounded-lg border p-4"
+                    className="flex items-center gap-3 rounded-md border border-border bg-card px-3 py-2.5"
                     key={collection.id}
                   >
-                    <div className="bg-secondary flex size-10 items-center justify-center rounded-md text-lg">
+                    <div className="flex size-9 shrink-0 items-center justify-center rounded-md bg-secondary text-sm font-medium">
                       {collection.icon ?? 'DB'}
                     </div>
                     <div className="min-w-0 flex-1">
-                      <div className="truncate font-medium">
+                      <div className="truncate text-sm font-medium">
                         {collection.name}
                       </div>
                       <div className="text-muted-foreground truncate text-sm">
@@ -185,11 +185,11 @@ export function WorkspaceDashboard({
               </CardDescription>
             </CardHeader>
             <CardContent className="flex items-center gap-4">
-              <div className="bg-secondary flex size-12 items-center justify-center rounded-lg">
+              <div className="flex size-11 items-center justify-center rounded-md bg-secondary">
                 <Users />
               </div>
               <div>
-                <div className="text-3xl font-semibold">
+                <div className="text-2xl font-semibold">
                   {overview.members}
                 </div>
                 <p className="text-muted-foreground text-sm">Active members</p>
@@ -207,7 +207,7 @@ export function WorkspaceDashboard({
             <CardContent className="flex flex-col gap-4">
               <div className="flex items-center gap-3">
                 <div
-                  className="flex size-10 items-center justify-center rounded-lg bg-primary text-sm font-semibold text-primary-foreground"
+                  className="flex size-10 items-center justify-center rounded-md bg-primary text-sm font-semibold text-primary-foreground"
                 >
                   {brandName.slice(0, 1).toUpperCase()}
                 </div>

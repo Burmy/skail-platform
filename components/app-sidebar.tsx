@@ -1,29 +1,31 @@
 'use client'
 
+import { useState, type ComponentType } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { cn } from '@/lib/utils'
-import { navItems } from '@/lib/data'
-import { signOut } from '@/app/auth/actions'
 import {
-  Home,
-  FileText,
-  Database,
-  LayoutGrid,
-  Copy,
-  Sparkles,
+  Bell,
   Bot,
-  Zap,
-  Settings,
-  Palette,
   ChevronLeft,
   ChevronsUpDown,
+  Copy,
+  Database,
+  FileText,
+  Home,
+  LayoutGrid,
   LogOut,
-  Search,
+  Palette,
   Plus,
+  Search,
+  Settings,
+  Sparkles,
+  Zap,
 } from 'lucide-react'
-import { Button } from '@/components/ui/button'
+
+import { signOut } from '@/app/auth/actions'
+import type { DashboardWorkspace } from '@/components/dashboard-layout'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -32,10 +34,10 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import type { DashboardWorkspace } from '@/components/dashboard-layout'
-import { useState } from 'react'
+import { navItems } from '@/lib/data'
+import { cn } from '@/lib/utils'
 
-const iconMap: Record<string, React.ComponentType<{ className?: string }>> = {
+const iconMap: Record<string, ComponentType<{ className?: string }>> = {
   Home,
   FileText,
   Database,
@@ -49,6 +51,9 @@ const iconMap: Record<string, React.ComponentType<{ className?: string }>> = {
 }
 
 type AppSidebarProps = {
+  className?: string
+  onNavigate?: () => void
+  variant?: 'desktop' | 'mobile'
   workspace?: DashboardWorkspace | null
   workspaces?: DashboardWorkspace[]
   userEmail?: string | null
@@ -79,12 +84,17 @@ function initialsFromEmail(email?: string | null) {
 }
 
 export function AppSidebar({
+  className,
+  onNavigate,
+  variant = 'desktop',
   workspace,
   workspaces = [],
   userEmail,
 }: AppSidebarProps) {
   const pathname = usePathname()
   const [collapsed, setCollapsed] = useState(false)
+  const isMobile = variant === 'mobile'
+  const isCollapsed = collapsed && !isMobile
   const workspaceId = workspace?.id
   const homeHref = workspaceId ? `/workspaces/${workspaceId}` : '/'
   const displayName = workspace?.brand_name || workspace?.name || 'SKAIL'
@@ -93,61 +103,64 @@ export function AppSidebar({
   return (
     <aside
       className={cn(
-        'flex h-screen flex-col border-r border-border bg-sidebar transition-all duration-300',
-        collapsed ? 'w-16' : 'w-64'
+        'flex h-dvh flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground transition-[width] duration-200 ease-out',
+        isCollapsed ? 'w-16' : 'w-64',
+        isMobile && 'h-full w-full border-r-0',
+        className
       )}
     >
-      {/* Logo */}
-      <div className="flex h-14 items-center justify-between border-b border-border px-4">
-        {!collapsed && (
-          <Link href={homeHref} className="flex min-w-0 items-center gap-2">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary">
-              <span className="text-sm font-bold text-primary-foreground">
-                {displayName.slice(0, 1).toUpperCase()}
-              </span>
-            </div>
+      <div className="flex h-14 items-center justify-between border-b border-sidebar-border px-3">
+        <Link
+          href={homeHref}
+          onClick={onNavigate}
+          className={cn(
+            'flex min-w-0 items-center gap-2 rounded-md px-1 py-1 transition-colors hover:bg-sidebar-accent/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring',
+            isCollapsed && 'pointer-events-none mx-auto'
+          )}
+        >
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-primary text-sm font-semibold text-primary-foreground">
+            {displayName.slice(0, 1).toUpperCase()}
+          </div>
+          {!isCollapsed && (
             <span
-              className="truncate text-lg font-semibold text-foreground"
+              className="truncate text-[15px] font-semibold tracking-normal text-sidebar-foreground"
               data-skail-brand
             >
               {displayName}
             </span>
-          </Link>
+          )}
+        </Link>
+        {!isMobile && !isCollapsed && (
+          <Button
+            aria-label="Collapse sidebar"
+            className="text-sidebar-foreground/60 hover:bg-sidebar-accent hover:text-sidebar-foreground"
+            onClick={() => setCollapsed(true)}
+            size="icon-sm"
+            variant="ghost"
+          >
+            <ChevronLeft />
+          </Button>
         )}
-        {collapsed && (
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary mx-auto">
-            <span className="text-sm font-bold text-primary-foreground">
-              {displayName.slice(0, 1).toUpperCase()}
-            </span>
-          </div>
-        )}
-        <Button
-          variant="ghost"
-          size="icon"
-          className={cn('h-8 w-8 text-muted-foreground', collapsed && 'hidden')}
-          onClick={() => setCollapsed(!collapsed)}
-        >
-          <ChevronLeft className="h-4 w-4" />
-        </Button>
       </div>
 
-      {/* Search */}
-      {!collapsed && (
-        <div className="p-3">
-          <button className="flex w-full items-center gap-2 rounded-lg border border-border bg-secondary/50 px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-secondary">
-            <Search className="h-4 w-4" />
+      {!isCollapsed && (
+        <div className="border-b border-sidebar-border/70 p-3">
+          <button className="flex h-10 w-full items-center gap-2 rounded-md border border-sidebar-border bg-background/55 px-3 text-sm text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring">
+            <Search className="size-4" />
             <span>Search...</span>
-            <kbd className="ml-auto rounded bg-muted px-1.5 py-0.5 text-xs font-mono">⌘K</kbd>
+            <kbd className="ml-auto rounded border border-sidebar-border bg-sidebar-accent px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
+              Ctrl K
+            </kbd>
           </button>
         </div>
       )}
 
-      {!collapsed && workspaces.length > 1 && (
-        <div className="border-b border-border p-3">
+      {!isCollapsed && workspaces.length > 1 && (
+        <div className="border-b border-sidebar-border/70 p-3">
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button
-                className="w-full justify-between"
+                className="w-full justify-between bg-background/55"
                 size="sm"
                 variant="outline"
               >
@@ -160,7 +173,9 @@ export function AppSidebar({
               <DropdownMenuSeparator />
               {workspaces.map((item) => (
                 <DropdownMenuItem asChild key={item.id}>
-                  <Link href={`/workspaces/${item.id}`}>{item.name}</Link>
+                  <Link href={`/workspaces/${item.id}`} onClick={onNavigate}>
+                    {item.name}
+                  </Link>
                 </DropdownMenuItem>
               ))}
             </DropdownMenuContent>
@@ -168,35 +183,42 @@ export function AppSidebar({
         </div>
       )}
 
-      {/* Navigation */}
-      <nav className="flex-1 overflow-y-auto p-3">
-        <ul className="space-y-1">
+      <nav className="flex-1 overflow-y-auto px-3 py-3">
+        <ul className="space-y-0.5">
           {navItems.map((item) => {
             const Icon = iconMap[item.icon]
             const href = scopedHref(item.href, workspaceId)
             const activePath = href.split('?')[0]
             const isActive =
               pathname === activePath ||
-              (activePath !== '/' && pathname.startsWith(activePath))
-            
+              (activePath !== '/' &&
+                activePath !== '/settings' &&
+                pathname.startsWith(activePath))
+
             return (
               <li key={item.href}>
                 <Link
+                  aria-label={isCollapsed ? item.label : undefined}
                   href={href}
+                  onClick={onNavigate}
+                  title={isCollapsed ? item.label : undefined}
                   className={cn(
-                    'flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors',
+                    'group flex h-9 items-center gap-2.5 rounded-md px-2.5 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring',
                     isActive
-                      ? 'bg-sidebar-accent text-sidebar-accent-foreground font-medium'
-                      : 'text-muted-foreground hover:bg-sidebar-accent/50 hover:text-foreground',
-                    collapsed && 'justify-center px-2'
+                      ? 'bg-sidebar-accent text-sidebar-accent-foreground'
+                      : 'text-muted-foreground hover:bg-sidebar-accent/70 hover:text-sidebar-foreground',
+                    isCollapsed && 'justify-center px-2'
                   )}
                 >
-                  {Icon && <Icon className="h-4 w-4 shrink-0" />}
-                  {!collapsed && (
+                  {Icon && <Icon className="size-4 shrink-0" />}
+                  {!isCollapsed && (
                     <>
-                      <span>{item.label}</span>
+                      <span className="truncate">{item.label}</span>
                       {item.badge && (
-                        <Badge variant="secondary" className="ml-auto bg-primary/10 text-primary text-xs">
+                        <Badge
+                          variant="secondary"
+                          className="ml-auto border-primary/15 bg-primary/10 px-2 py-0 text-[10px] text-primary"
+                        >
                           {item.badge}
                         </Badge>
                       )}
@@ -209,51 +231,67 @@ export function AppSidebar({
         </ul>
       </nav>
 
-      {/* Bottom section */}
-      <div className="border-t border-border p-3">
-        {!collapsed && (
+      <div className="border-t border-sidebar-border p-3">
+        {!isCollapsed ? (
           <Button asChild className="w-full gap-2" size="sm">
-            <Link href={scopedHref('/pages', workspaceId)}>
+            <Link href={scopedHref('/pages', workspaceId)} onClick={onNavigate}>
               <Plus data-icon="inline-start" />
               New Page
             </Link>
           </Button>
-        )}
-        {collapsed && (
-          <Button size="icon" className="w-full" onClick={() => setCollapsed(false)}>
+        ) : (
+          <Button
+            aria-label="Expand sidebar"
+            className="w-full"
+            onClick={() => setCollapsed(false)}
+            size="icon"
+          >
             <Plus />
           </Button>
         )}
       </div>
 
-      {/* User */}
-      <div className="border-t border-border p-3">
-        <div className={cn('flex items-center gap-3', collapsed && 'justify-center')}>
-          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10 text-primary text-sm font-medium">
+      <div className="border-t border-sidebar-border p-3">
+        <div
+          className={cn(
+            'flex items-center gap-2.5',
+            isCollapsed && 'justify-center'
+          )}
+        >
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-sidebar-accent text-sm font-medium text-sidebar-accent-foreground">
             {userInitials}
           </div>
-          {!collapsed && (
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium text-foreground truncate">
-                {userEmail ?? 'Signed in'}
-              </p>
-              <p className="text-xs text-muted-foreground truncate">
-                {workspace?.role_key ?? workspace?.plan_key ?? 'Member'}
-              </p>
-            </div>
-          )}
-          {!collapsed && (
-            <form action={signOut}>
+          {!isCollapsed && (
+            <>
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-medium text-sidebar-foreground">
+                  {userEmail ?? 'Signed in'}
+                </p>
+                <p className="truncate text-xs text-muted-foreground">
+                  {workspace?.role_key ?? workspace?.plan_key ?? 'Member'}
+                </p>
+              </div>
               <Button
-                aria-label="Sign out"
-                className="text-muted-foreground"
+                aria-label="Notifications"
+                className="hidden text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-foreground sm:inline-flex"
                 size="icon-sm"
-                type="submit"
+                type="button"
                 variant="ghost"
               >
-                <LogOut />
+                <Bell />
               </Button>
-            </form>
+              <form action={signOut}>
+                <Button
+                  aria-label="Sign out"
+                  className="text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-foreground"
+                  size="icon-sm"
+                  type="submit"
+                  variant="ghost"
+                >
+                  <LogOut />
+                </Button>
+              </form>
+            </>
           )}
         </div>
       </div>

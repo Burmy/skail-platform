@@ -1,6 +1,6 @@
 'use client'
 
-import { useActionState, useMemo, useState } from 'react'
+import { useActionState, useMemo, useState, type ComponentType } from 'react'
 import {
   Activity,
   ArrowDown,
@@ -72,7 +72,7 @@ const initialActionState: LayoutActionState = {
   status: 'idle',
 }
 
-const widgetIcons: Record<WidgetType, React.ComponentType<{ className?: string }>> = {
+const widgetIcons: Record<WidgetType, ComponentType<{ className?: string }>> = {
   text: Type,
   heading: Heading,
   table: TableIcon,
@@ -142,7 +142,7 @@ function NativeSelect({
   return (
     <select
       className={cn(
-        'border-input bg-background h-9 rounded-md border px-3 text-sm shadow-xs outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50',
+        'h-10 rounded-md border border-input bg-background px-3 text-sm outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50',
         className,
       )}
       {...props}
@@ -388,8 +388,8 @@ export function LayoutBuilder({
         : 'space-y-4'
 
   return (
-    <div className="flex h-[calc(100vh-3.5rem)] min-h-0">
-      <aside className="flex w-72 shrink-0 flex-col border-r bg-card">
+    <div className="flex min-h-[calc(100dvh-3.5rem)] flex-col lg:h-[calc(100dvh-3.5rem)] lg:min-h-0 lg:flex-row">
+      <aside className="flex w-full shrink-0 flex-col border-b bg-card lg:w-72 lg:border-b-0 lg:border-r">
         <div className="border-b p-4">
           <h2 className="text-sm font-semibold">Pages and tabs</h2>
           <p className="text-xs text-muted-foreground">
@@ -435,7 +435,7 @@ export function LayoutBuilder({
         {selectedPage ? (
           <>
             <div className="border-b bg-card p-4">
-              <div className="flex items-start justify-between gap-4">
+              <div className="flex flex-col items-start justify-between gap-4 xl:flex-row xl:items-center">
                 <RenamePageForm page={selectedPage} workspaceId={workspaceId} />
                 <div className="flex shrink-0 items-center gap-2">
                   <div className="flex rounded-md border bg-secondary p-1">
@@ -474,8 +474,8 @@ export function LayoutBuilder({
               </div>
             </div>
 
-            <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_340px]">
-              <div className="min-w-0 overflow-auto bg-background p-6">
+            <div className="grid min-h-0 flex-1 lg:grid-cols-[minmax(0,1fr)_340px]">
+              <div className="min-w-0 overflow-auto bg-background p-4 lg:p-6">
                 <div
                   className={cn(
                     'mx-auto min-h-full rounded-md border bg-card transition-all',
@@ -545,7 +545,7 @@ export function LayoutBuilder({
                 </div>
               </div>
 
-              <aside className="min-h-0 overflow-y-auto border-l bg-card p-4">
+              <aside className="min-h-0 overflow-y-auto border-t bg-card p-4 lg:border-l lg:border-t-0">
                 <DuplicatePageForm pageId={selectedPage.id} workspaceId={workspaceId} />
                 <div className="my-5 h-px bg-border" />
                 <AddWidgetPanel
@@ -600,8 +600,8 @@ function RenamePageForm({
   const [state, action, isPending] = useActionState(renamePage, initialActionState)
 
   return (
-    <form action={action} className="grid min-w-0 flex-1 gap-2">
-      <div className="flex gap-3">
+    <form action={action} className="grid w-full min-w-0 flex-1 gap-2">
+      <div className="flex flex-col gap-3 sm:flex-row">
         <input name="workspaceId" type="hidden" value={workspaceId} />
         <input name="pageId" type="hidden" value={page.id} />
         <Input

@@ -1,6 +1,6 @@
 'use client'
 
-import { useActionState, useMemo, useState } from 'react'
+import { useActionState, useMemo, useState, type ComponentType } from 'react'
 import {
   Calendar,
   Columns3,
@@ -56,7 +56,7 @@ const initialActionState: ViewActionState = {
   status: 'idle',
 }
 
-const viewIcons: Record<SavedViewType, React.ComponentType<{ className?: string }>> = {
+const viewIcons: Record<SavedViewType, ComponentType<{ className?: string }>> = {
   table: TableIcon,
   kanban: Columns3,
   calendar: Calendar,
@@ -88,7 +88,7 @@ function NativeSelect({
   return (
     <select
       className={cn(
-        'border-input bg-background h-9 rounded-md border px-3 text-sm shadow-xs outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50',
+        'h-10 rounded-md border border-input bg-background px-3 text-sm outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50',
         className,
       )}
       {...props}
@@ -278,8 +278,8 @@ export function ViewEngine({
     false
 
   return (
-    <div className="flex h-[calc(100vh-3.5rem)] min-h-0">
-      <aside className="flex w-80 shrink-0 flex-col border-r bg-card">
+    <div className="flex min-h-[calc(100dvh-3.5rem)] flex-col lg:h-[calc(100dvh-3.5rem)] lg:min-h-0 lg:flex-row">
+      <aside className="flex w-full shrink-0 flex-col border-b bg-card lg:w-80 lg:border-b-0 lg:border-r">
         <div className="border-b p-4">
           <h2 className="text-sm font-semibold">Saved views</h2>
           <p className="text-xs text-muted-foreground">
@@ -396,7 +396,7 @@ export function ViewEngine({
               view={selectedView}
               workspaceId={workspaceId}
             />
-            <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_380px]">
+            <div className="grid min-h-0 flex-1 lg:grid-cols-[minmax(0,1fr)_380px]">
               <ViewPreview collection={selectedCollection} view={selectedView} />
               <ViewSettingsPanel
                 collection={selectedCollection}
@@ -456,8 +456,11 @@ function ViewToolbar({
 
   return (
     <div className="border-b bg-card p-4">
-      <div className="flex items-start justify-between gap-4">
-        <form action={renameAction} className="flex min-w-0 flex-1 gap-3">
+      <div className="flex flex-col items-start justify-between gap-4 xl:flex-row xl:items-center">
+        <form
+          action={renameAction}
+          className="flex w-full min-w-0 flex-col gap-3 sm:flex-row xl:flex-1"
+        >
           <input name="workspaceId" type="hidden" value={workspaceId} />
           <input name="viewId" type="hidden" value={view.id} />
           <Input
@@ -473,7 +476,7 @@ function ViewToolbar({
             Rename
           </Button>
         </form>
-        <div className="flex shrink-0 items-center gap-2">
+        <div className="flex shrink-0 flex-wrap items-center gap-2">
           <ViewTypeBadge viewType={view.view_type} />
           <Badge variant="outline">{collection.name}</Badge>
           <form action={duplicateAction}>
@@ -536,7 +539,7 @@ function ViewSettingsPanel({
   const missingCalendarField = viewType === 'calendar' && dateFields.length === 0
 
   return (
-    <aside className="min-h-0 overflow-y-auto border-l bg-card p-4">
+    <aside className="min-h-0 overflow-y-auto border-t bg-card p-4 lg:border-l lg:border-t-0">
       <form action={action} className="space-y-5">
         <input name="workspaceId" type="hidden" value={workspaceId} />
         <input name="viewId" type="hidden" value={view.id} />
@@ -613,7 +616,7 @@ function ViewSettingsPanel({
             Filters
           </h3>
           {filters.slice(0, 3).map((filter) => (
-            <div className="grid grid-cols-[1fr_110px_1fr] gap-2" key={filter.id}>
+            <div className="grid gap-2 sm:grid-cols-[1fr_110px_1fr]" key={filter.id}>
               <NativeSelect
                 defaultValue={filter.fieldId}
                 disabled={Boolean(view.is_locked)}
@@ -653,7 +656,7 @@ function ViewSettingsPanel({
             Sorts
           </h3>
           {sorts.slice(0, 3).map((sort) => (
-            <div className="grid grid-cols-[1fr_110px] gap-2" key={sort.id}>
+            <div className="grid gap-2 sm:grid-cols-[1fr_110px]" key={sort.id}>
               <NativeSelect
                 defaultValue={sort.fieldId}
                 disabled={Boolean(view.is_locked)}

@@ -87,11 +87,14 @@ export function workspaceThemeToStyle(
   const foreground = readableForeground(tokens.backgroundColor)
   const cardForeground = readableForeground(tokens.cardColor)
   const buttonForeground = readableForeground(tokens.buttonColor)
-  const accentForeground = readableForeground(tokens.accentColor)
   const muted = mixHex(cardForeground, tokens.cardColor, 0.08)
   const secondary = mixHex(cardForeground, tokens.cardColor, 0.12)
   const border = mixHex(cardForeground, tokens.cardColor, 0.18)
   const mutedForeground = mixHex(cardForeground, tokens.backgroundColor, 0.62)
+  const accentSurface = mixHex(tokens.accentColor, tokens.cardColor, 0.14)
+  const accentSurfaceForeground = readableForeground(accentSurface)
+  const surfaceSoft = mixHex(cardForeground, tokens.backgroundColor, 0.04)
+  const surfaceRaised = mixHex(tokens.cardColor, tokens.backgroundColor, 0.92)
 
   return {
     colorScheme: colorSchemeForMode(mode, tokens),
@@ -111,11 +114,15 @@ export function workspaceThemeToStyle(
     '--secondary-foreground': cardForeground,
     '--muted': muted,
     '--muted-foreground': mutedForeground,
-    '--accent': tokens.accentColor,
-    '--accent-foreground': accentForeground,
+    '--accent': accentSurface,
+    '--accent-foreground': accentSurfaceForeground,
     '--border': border,
     '--input': border,
     '--ring': tokens.accentColor,
+    '--surface-soft': surfaceSoft,
+    '--surface-raised': surfaceRaised,
+    '--text-subtle': mutedForeground,
+    '--hairline-soft': border,
     '--chart-1': tokens.buttonColor,
     '--chart-2': tokens.accentColor,
     '--chart-3': tokens.linkColor,
@@ -125,8 +132,8 @@ export function workspaceThemeToStyle(
     '--sidebar-foreground': cardForeground,
     '--sidebar-primary': tokens.buttonColor,
     '--sidebar-primary-foreground': buttonForeground,
-    '--sidebar-accent': tokens.accentColor,
-    '--sidebar-accent-foreground': accentForeground,
+    '--sidebar-accent': accentSurface,
+    '--sidebar-accent-foreground': accentSurfaceForeground,
     '--sidebar-border': border,
     '--sidebar-ring': tokens.accentColor,
   }

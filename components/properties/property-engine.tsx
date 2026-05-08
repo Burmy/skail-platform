@@ -1,6 +1,12 @@
 'use client'
 
-import { useActionState, useMemo, useRef, useState } from 'react'
+import {
+  useActionState,
+  useMemo,
+  useRef,
+  useState,
+  type ComponentType,
+} from 'react'
 import {
   AlertTriangle,
   Calendar,
@@ -86,7 +92,7 @@ const initialActionState: PropertyActionState = {
   status: 'idle',
 }
 
-const typeIcons: Record<PropertyType, React.ComponentType<{ className?: string }>> = {
+const typeIcons: Record<PropertyType, ComponentType<{ className?: string }>> = {
   text: Type,
   long_text: Type,
   number: Hash,
@@ -131,7 +137,7 @@ function NativeSelect({
   return (
     <select
       className={cn(
-        'border-input bg-background h-9 rounded-md border px-3 text-sm shadow-xs outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50',
+        'h-10 rounded-md border border-input bg-background px-3 text-sm outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50',
         className,
       )}
       {...props}
@@ -206,8 +212,8 @@ export function PropertyEngine({
   )
 
   return (
-    <div className="flex h-[calc(100vh-3.5rem)] min-h-0">
-      <aside className="flex w-72 shrink-0 flex-col border-r bg-card">
+    <div className="flex min-h-[calc(100dvh-3.5rem)] flex-col lg:h-[calc(100dvh-3.5rem)] lg:min-h-0 lg:flex-row">
+      <aside className="flex w-full shrink-0 flex-col border-b bg-card lg:w-72 lg:border-b-0 lg:border-r">
         <div className="border-b p-4">
           <div className="flex items-center justify-between">
             <div>
@@ -282,8 +288,11 @@ export function PropertyEngine({
       <section className="flex min-w-0 flex-1 flex-col">
         {selectedCollection ? (
           <>
-            <div className="flex items-start justify-between gap-4 border-b bg-card p-4">
-              <form action={renameAction} className="flex min-w-0 flex-1 gap-3">
+            <div className="flex flex-col items-start justify-between gap-4 border-b bg-card p-4 md:flex-row md:items-center">
+              <form
+                action={renameAction}
+                className="flex w-full min-w-0 flex-col gap-3 sm:flex-row md:flex-1"
+              >
                 <input name="workspaceId" type="hidden" value={workspaceId} />
                 <input
                   name="collectionId"
@@ -319,7 +328,7 @@ export function PropertyEngine({
               <ActionMessage state={renameState} />
             </div>
 
-            <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_360px]">
+            <div className="grid min-h-0 flex-1 lg:grid-cols-[minmax(0,1fr)_360px]">
               <RecordEditor
                 collection={selectedCollection}
                 fields={visibleRecordFields}
@@ -368,7 +377,7 @@ function FieldEditorPanel({
   )
 
   return (
-    <aside className="min-h-0 border-l bg-card">
+    <aside className="min-h-0 border-t bg-card lg:border-l lg:border-t-0">
       <div className="border-b p-4">
         <h3 className="text-sm font-semibold">Fields</h3>
         <p className="text-xs text-muted-foreground">
@@ -662,7 +671,7 @@ function RecordEditor({
   fields: CollectionField[]
 }) {
   return (
-    <div className="min-w-0 overflow-auto p-4">
+    <div className="min-w-0 overflow-auto p-4 lg:p-5">
       <div className="hidden">
         {collection.records.map((record) => (
           <form action={updateRecord} id={`record-form-${record.id}`} key={record.id}>

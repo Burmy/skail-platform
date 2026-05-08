@@ -1,23 +1,30 @@
 'use client'
 
-import { DashboardLayout } from '@/components/dashboard-layout'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
-import { 
-  Copy, 
-  FileText, 
+import {
+  Copy,
+  FileText,
   Folder,
   LayoutDashboard,
   Plus,
   Table,
 } from 'lucide-react'
 
+import { DashboardLayout } from '@/components/dashboard-layout'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card'
+
 const templates = [
   {
     id: '1',
     name: 'Client Portal',
-    description: 'Complete client portal with dashboard, documents, and messaging',
+    description: 'A client-facing portal with a dashboard, documents, and updates.',
     icon: LayoutDashboard,
     category: 'Portal',
     pages: 5,
@@ -25,7 +32,7 @@ const templates = [
   {
     id: '2',
     name: 'Project Tracker',
-    description: 'Track projects with status, timelines, and team assignments',
+    description: 'Track work with statuses, timelines, owners, and views.',
     icon: Folder,
     category: 'Management',
     pages: 3,
@@ -33,7 +40,7 @@ const templates = [
   {
     id: '3',
     name: 'CRM Database',
-    description: 'Customer relationship management with contacts and deals',
+    description: 'A structured base for contacts, companies, and opportunities.',
     icon: Table,
     category: 'Database',
     pages: 4,
@@ -41,7 +48,7 @@ const templates = [
   {
     id: '4',
     name: 'Knowledge Base',
-    description: 'Documentation hub with categories and search',
+    description: 'A simple documentation hub with organized resource pages.',
     icon: FileText,
     category: 'Content',
     pages: 6,
@@ -50,45 +57,55 @@ const templates = [
 
 export default function TemplatesPage() {
   return (
-    <DashboardLayout 
-      title="Templates" 
-      description="Start with pre-built templates"
+    <DashboardLayout
       actions={
-        <Button className="gap-2">
-          <Plus className="h-4 w-4" />
+        <Button disabled>
+          <Plus data-icon="inline-start" />
           Create Template
         </Button>
       }
+      description="Reusable workspace starting points"
+      title="Templates"
     >
-      <div className="p-6">
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-          {templates.map((template) => (
-            <Card key={template.id} className="border-border bg-card hover:border-primary/50 transition-colors group">
-              <CardHeader>
-                <div className="flex items-start justify-between">
-                  <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10">
-                    <template.icon className="h-6 w-6 text-primary" />
+      <div className="mx-auto flex w-full max-w-6xl flex-col gap-5 px-4 py-6 lg:px-6">
+        <div className="rounded-lg border border-dashed bg-surface-soft p-5">
+          <div className="max-w-2xl">
+            <h2 className="text-base font-semibold">Template installer</h2>
+            <p className="mt-1 text-sm leading-6 text-muted-foreground">
+              These templates are placeholders for the installer module. They
+              show the intended structure without changing workspace data yet.
+            </p>
+          </div>
+        </div>
+
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+          {templates.map((template) => {
+            const Icon = template.icon
+
+            return (
+              <Card className="bg-card/90" key={template.id}>
+                <CardHeader>
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex size-10 items-center justify-center rounded-md bg-secondary">
+                      <Icon className="size-5 text-muted-foreground" />
+                    </div>
+                    <Badge variant="secondary">{template.category}</Badge>
                   </div>
-                  <Badge variant="secondary">{template.category}</Badge>
-                </div>
-                <CardTitle className="text-foreground mt-4">{template.name}</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-sm text-muted-foreground mb-4">
-                  {template.description}
-                </p>
-                <div className="flex items-center justify-between">
+                  <CardTitle>{template.name}</CardTitle>
+                  <CardDescription>{template.description}</CardDescription>
+                </CardHeader>
+                <CardContent className="flex items-center justify-between gap-3">
                   <span className="text-sm text-muted-foreground">
                     {template.pages} pages
                   </span>
-                  <Button size="sm" className="gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <Copy className="h-3 w-3" />
-                    Use Template
+                  <Button disabled size="sm" variant="outline">
+                    <Copy data-icon="inline-start" />
+                    Use
                   </Button>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
+                </CardContent>
+              </Card>
+            )
+          })}
         </div>
       </div>
     </DashboardLayout>

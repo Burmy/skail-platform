@@ -37,7 +37,7 @@ export function WorkspaceCreateForm() {
   )
 
   return (
-    <Card>
+    <Card className="border-border/80 bg-card/95">
       <CardHeader>
         <CardTitle>Create a workspace</CardTitle>
         <CardDescription>

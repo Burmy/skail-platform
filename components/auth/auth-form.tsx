@@ -45,7 +45,7 @@ export function AuthForm({ mode, nextPath = '/', message }: AuthFormProps) {
   const isSignup = mode === 'signup'
 
   return (
-    <Card>
+    <Card className="border-border/80 bg-card/95">
       <CardHeader>
         <CardTitle>{isSignup ? 'Create your account' : 'Sign in'}</CardTitle>
         <CardDescription>

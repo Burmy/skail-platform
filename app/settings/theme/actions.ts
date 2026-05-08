@@ -12,6 +12,7 @@ import {
   DENSITY_OPTIONS,
   GALLERY_CARD_STYLES,
   ICON_TYPES,
+  objectValue,
   RADIUS_OPTIONS,
   safeUrl,
   serializePageBackground,
@@ -73,6 +74,8 @@ const updateThemeSchema = workspaceScopedSchema.extend({
   highlightColor: hexColor,
 })
 
+const resetThemeSchema = workspaceScopedSchema
+
 const updatePageStyleSchema = workspaceScopedSchema.extend({
   pageId: z.string().uuid(),
   title: formString.pipe(z.string().trim().min(1).max(80)),
@@ -128,7 +131,9 @@ function revalidateTheme(workspaceId: string) {
   revalidatePath('/', 'layout')
   revalidatePath(`/settings/theme?workspace_id=${workspaceId}`)
   revalidatePath('/settings/theme')
+  revalidatePath(`/workspaces/${workspaceId}`)
   revalidatePath(`/pages?workspace_id=${workspaceId}`)
+  revalidatePath(`/databases?workspace_id=${workspaceId}`)
   revalidatePath(`/views?workspace_id=${workspaceId}`)
 }
 
@@ -343,6 +348,95 @@ export async function updateThemeSettings(
       ? 'Workspace theme saved.'
       : 'Personal theme override saved.',
   )
+}
+
+export async function resetThemeSettings(
+  _state: ThemeActionState = initialActionState,
+  formData: FormData,
+): Promise<ThemeActionState> {
+  const parsed = resetThemeSchema.safeParse({
+    workspaceId: formData.get('workspaceId'),
+  })
+
+  if (!parsed.success) {
+    return error(firstError(parsed.error))
+  }
+
+  const access = await requireWorkspaceAccess(parsed.data.workspaceId)
+
+  if (!access.ok) {
+    return access.state
+  }
+
+  if (!access.permissions.canEditSharedTheme) {
+    return error(
+      'You need layout or workspace management permission to reset the workspace theme.',
+    )
+  }
+
+  const { data: themes, error: themesError } = await access.admin
+    .from('themes')
+    .select('id,is_default,tokens_json')
+    .eq('workspace_id', parsed.data.workspaceId)
+
+  if (themesError) {
+    return error(themesError.message)
+  }
+
+  const themeIdsToDelete =
+    themes
+      ?.filter((theme) => {
+        const tokens = objectValue(theme.tokens_json)
+
+        return (
+          theme.is_default ||
+          (tokens.scope === 'personal' && tokens.userId === access.user.id)
+        )
+      })
+      .map((theme) => theme.id) ?? []
+
+  if (themeIdsToDelete.length > 0) {
+    const { error: deleteError } = await access.admin
+      .from('themes')
+      .delete()
+      .eq('workspace_id', parsed.data.workspaceId)
+      .in('id', themeIdsToDelete)
+
+    if (deleteError) {
+      return error(deleteError.message)
+    }
+  }
+
+  const [pageStylesDelete, widgetStylesDelete, viewStylesDelete] =
+    await Promise.all([
+      access.admin
+        .from('page_style_settings')
+        .delete()
+        .eq('workspace_id', parsed.data.workspaceId),
+      access.admin
+        .from('widget_style_settings')
+        .delete()
+        .eq('workspace_id', parsed.data.workspaceId),
+      access.admin
+        .from('view_style_settings')
+        .delete()
+        .eq('workspace_id', parsed.data.workspaceId),
+    ])
+
+  if (pageStylesDelete.error) {
+    return error(pageStylesDelete.error.message)
+  }
+
+  if (widgetStylesDelete.error) {
+    return error(widgetStylesDelete.error.message)
+  }
+
+  if (viewStylesDelete.error) {
+    return error(viewStylesDelete.error.message)
+  }
+
+  revalidateTheme(parsed.data.workspaceId)
+  return success('Theme and style overrides reset to default tokens.')
 }
 
 export async function updatePageStyleSettings(

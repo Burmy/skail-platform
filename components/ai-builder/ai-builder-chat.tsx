@@ -337,9 +337,9 @@ export function AiBuilderChat({
   }
 
   return (
-    <div className="grid h-[calc(100vh-3.5rem)] min-h-0 grid-cols-[minmax(0,1fr)_420px]">
+    <div className="grid min-h-[calc(100dvh-3.5rem)] lg:h-[calc(100dvh-3.5rem)] lg:min-h-0 lg:grid-cols-[minmax(0,1fr)_420px]">
       <section className="flex min-w-0 flex-col">
-        <div className="flex-1 overflow-y-auto p-6">
+        <div className="flex-1 overflow-y-auto p-4 lg:p-6">
           <div className="mx-auto flex max-w-3xl flex-col gap-5">
             {messages.map((message) => (
               <div
@@ -368,7 +368,7 @@ export function AiBuilderChat({
                     'max-w-[78%] rounded-lg border px-4 py-3 text-sm leading-6',
                     message.role === 'assistant'
                       ? 'bg-card text-card-foreground'
-                      : 'border-primary bg-primary text-primary-foreground',
+                      : 'border-primary/20 bg-primary/10 text-foreground',
                   )}
                 >
                   {message.content}
@@ -437,7 +437,7 @@ export function AiBuilderChat({
         </div>
       </section>
 
-      <aside className="flex min-h-0 flex-col border-l bg-card">
+      <aside className="flex min-h-0 flex-col border-t bg-card lg:border-l lg:border-t-0">
         <div className="flex items-center justify-between border-b px-4 py-3">
           <div className="flex items-center gap-2">
             <Eye className="size-4 text-primary" />
@@ -492,9 +492,14 @@ export function AiBuilderChat({
                             key={`${key}-${index}`}
                           >
                             <div className="font-medium">{itemName(change)}</div>
-                            <pre className="mt-1 max-h-28 overflow-auto text-xs text-muted-foreground">
-                              {JSON.stringify(change, null, 2)}
-                            </pre>
+                            <details className="mt-1 text-xs text-muted-foreground">
+                              <summary className="cursor-pointer select-none">
+                                JSON details
+                              </summary>
+                              <pre className="mt-2 max-h-28 overflow-auto rounded-md bg-muted p-2">
+                                {JSON.stringify(change, null, 2)}
+                              </pre>
+                            </details>
                           </div>
                         ))}
                       </CardContent>
