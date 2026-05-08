@@ -29,14 +29,6 @@ function getSafeNextPath(value: FormDataEntryValue | null) {
   return value
 }
 
-function loginRedirect(message: string) {
-  const params = new URLSearchParams({
-    message,
-  })
-
-  redirect(`/login?${params.toString()}`)
-}
-
 function getJwtRole(key: string) {
   if (!key.startsWith('eyJ')) {
     return null
@@ -68,32 +60,45 @@ function hasUsableAdminAuthKey() {
   return key.startsWith('sb_secret_') || getJwtRole(key) === 'service_role'
 }
 
-function getDevSignupBypassSetupMessage() {
-  if (process.env.NODE_ENV !== 'development') {
-    return null
-  }
-
+function getAutoConfirmSignupSetupMessage() {
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim()
 
   if (!key) {
-    return 'Add the real Supabase service_role key to SUPABASE_SERVICE_ROLE_KEY for local auto-confirm signup.'
+    return 'Add the real Supabase service_role key to SUPABASE_SERVICE_ROLE_KEY, or disable Confirm email in Supabase Auth settings.'
   }
 
   const role = getJwtRole(key)
 
   if (role && role !== 'service_role') {
-    return `SUPABASE_SERVICE_ROLE_KEY is currently a ${role} key. Replace it with the real service_role key for local auto-confirm signup.`
+    return `SUPABASE_SERVICE_ROLE_KEY is currently a ${role} key. Replace it with the real service_role key, or disable Confirm email in Supabase Auth settings.`
   }
 
   return null
 }
 
-function canAutoConfirmDevSignup() {
+function canAutoConfirmSignup() {
   return (
-    process.env.NODE_ENV === 'development' &&
     hasUsableAdminAuthKey() &&
+    process.env.SKAIL_AUTO_CONFIRM_SIGNUPS !== 'false' &&
     process.env.SKAIL_DEV_AUTO_CONFIRM_SIGNUPS !== 'false'
   )
+}
+
+async function signInAfterSignup(email: string, password: string, nextPath: string) {
+  const supabase = await createClient()
+  const { error } = await supabase.auth.signInWithPassword({
+    email,
+    password,
+  })
+
+  if (error) {
+    return {
+      status: 'error' as const,
+      message: error.message,
+    }
+  }
+
+  redirect(nextPath)
 }
 
 export async function login(
@@ -147,7 +152,9 @@ export async function signup(
     }
   }
 
-  if (canAutoConfirmDevSignup()) {
+  const nextPath = getSafeNextPath(formData.get('next'))
+
+  if (canAutoConfirmSignup()) {
     const supabase = createAdminClient()
     const { error } = await supabase.auth.admin.createUser({
       email,
@@ -165,7 +172,7 @@ export async function signup(
       }
     }
 
-    loginRedirect('Account created. Sign in to continue.')
+    return signInAfterSignup(email, password, nextPath)
   }
 
   const headerStore = await headers()
@@ -185,7 +192,7 @@ export async function signup(
 
   if (error) {
     if (error.message.toLowerCase().includes('rate limit')) {
-      const setupMessage = getDevSignupBypassSetupMessage()
+      const setupMessage = getAutoConfirmSignupSetupMessage()
 
       return {
         status: 'error',
@@ -202,12 +209,12 @@ export async function signup(
   }
 
   if (data.session) {
-    loginRedirect('Account created. Sign in to continue.')
+    return signInAfterSignup(email, password, nextPath)
   }
 
   return {
-    status: 'success',
-    message: 'Check your email to confirm your account.',
+    status: 'error',
+    message: getAutoConfirmSignupSetupMessage() ?? 'Supabase still requires email confirmation. Disable Confirm email in Supabase Auth settings.',
   }
 }
 
