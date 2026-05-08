@@ -43,6 +43,11 @@ export function AuthForm({ mode, nextPath = '/', message }: AuthFormProps) {
   const [state, formAction, isPending] = useActionState(action, initialState)
   const [showPassword, setShowPassword] = useState(false)
   const isSignup = mode === 'signup'
+  const switchHref = `${isSignup ? '/login' : '/signup'}${
+    nextPath && nextPath !== '/'
+      ? `?next=${encodeURIComponent(nextPath)}`
+      : ''
+  }`
 
   return (
     <Card className="border-border/80 bg-card/95">
@@ -136,7 +141,7 @@ export function AuthForm({ mode, nextPath = '/', message }: AuthFormProps) {
             {isSignup ? 'Already have an account?' : 'Need an account?'}{' '}
             <Link
               className="text-foreground font-medium underline underline-offset-4"
-              href={isSignup ? '/login' : '/signup'}
+              href={switchHref}
             >
               {isSignup ? 'Sign in' : 'Create one'}
             </Link>

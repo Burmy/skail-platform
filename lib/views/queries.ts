@@ -54,6 +54,7 @@ export async function getViewEngineData(
     .select('*')
     .eq('workspace_id', workspaceId)
     .in('collection_id', collectionIds)
+    .is('archived_at', null)
     .order('created_at', { ascending: true })
 
   if (viewsError) {

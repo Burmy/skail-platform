@@ -126,7 +126,7 @@ export function DashboardLayout({
           </div>
         </header>
 
-        <main className="min-w-0 flex-1 overflow-y-auto">{children}</main>
+        <main className="min-w-0 flex-1">{children}</main>
       </div>
     </div>
   )

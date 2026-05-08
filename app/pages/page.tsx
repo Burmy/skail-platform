@@ -1,52 +1,52 @@
-import { notFound } from 'next/navigation'
+import { notFound, redirect } from 'next/navigation'
 
 import { DashboardLayout } from '@/components/dashboard-layout'
-import { LayoutBuilder } from '@/components/layout-builder/layout-builder'
-import {
-  getLayoutBuilderData,
-  getWorkspaceIdForPagesPage,
-} from '@/lib/layout/queries'
+import { PagesHome } from '@/components/pages/pages-home'
+import { getRecentPages, getStackTree } from '@/lib/pages/queries'
 import { getAppliedWorkspaceTheme } from '@/lib/theme/applied-theme'
+import { getUserWorkspaces, getWorkspaceForUser } from '@/lib/workspaces/queries'
 
 export const dynamic = 'force-dynamic'
 
-type PagesPageProps = {
-  searchParams: Promise<{
-    workspace_id?: string
-  }>
+type PagesIndexProps = {
+  searchParams: Promise<{ workspace_id?: string }>
 }
 
-export default async function PagesPage({ searchParams }: PagesPageProps) {
-  const params = await searchParams
-  const workspaceId = await getWorkspaceIdForPagesPage(params.workspace_id)
-  const [builderData, appliedTheme] = await Promise.all([
-    getLayoutBuilderData(workspaceId),
+async function resolveWorkspaceId(workspaceIdParam?: string): Promise<string> {
+  if (workspaceIdParam) return workspaceIdParam
+  const { workspaces } = await getUserWorkspaces()
+  const first = workspaces[0]
+  if (!first) redirect('/workspaces/new')
+  redirect(`/pages?workspace_id=${first.id}`)
+}
+
+export default async function PagesIndex({ searchParams }: PagesIndexProps) {
+  const sp = await searchParams
+  const workspaceId = await resolveWorkspaceId(sp.workspace_id)
+
+  const [{ workspaces }, ctx, appliedTheme, recents, stacks] = await Promise.all([
+    getUserWorkspaces(),
+    getWorkspaceForUser(workspaceId),
     getAppliedWorkspaceTheme(workspaceId),
+    getRecentPages(workspaceId, 10),
+    getStackTree(workspaceId),
   ])
 
-  if (!builderData) {
-    notFound()
-  }
-
-  const activeWorkspace = {
-    ...builderData.workspace,
-    role_key: builderData.roleKey,
-  }
+  if (!ctx.workspace || !ctx.roleKey) notFound()
 
   return (
     <DashboardLayout
-      description="Pages, tabs, widgets, and connected layouts"
+      description="Your workspace pages, stacks, and recents"
       title="Pages"
-      userEmail={builderData.userEmail}
-      workspace={activeWorkspace}
-      workspaces={builderData.workspaces}
+      userEmail={ctx.user?.email ?? null}
+      workspace={{ ...ctx.workspace, role_key: ctx.roleKey }}
+      workspaces={workspaces}
       theme={appliedTheme}
     >
-      <LayoutBuilder
-        collections={builderData.collections}
-        pages={builderData.pages}
-        views={builderData.views}
+      <PagesHome
         workspaceId={workspaceId}
+        recents={recents}
+        stacks={stacks}
       />
     </DashboardLayout>
   )

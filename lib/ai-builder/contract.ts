@@ -252,6 +252,15 @@ export const aiBuilderPlanSchema = z.object({
       views_to_create: z.array(nonEmptyActionObject).default([]),
       widgets_to_create: z.array(nonEmptyActionObject).default([]),
       layout_changes: z.array(nonEmptyActionObject).default([]),
+      archives: z.array(nonEmptyActionObject).default([]),
+      restores: z.array(nonEmptyActionObject).default([]),
+      relations_to_create: z.array(nonEmptyActionObject).default([]),
+      record_links: z.array(nonEmptyActionObject).default([]),
+      formulas_to_set: z.array(nonEmptyActionObject).default([]),
+      files_to_attach: z.array(nonEmptyActionObject).default([]),
+      locations_to_set: z.array(nonEmptyActionObject).default([]),
+      view_layout_changes: z.array(nonEmptyActionObject).default([]),
+      dashboard_blocks_to_add: z.array(nonEmptyActionObject).default([]),
     })
     .passthrough(),
   warnings: z.array(z.string()).default([]),
@@ -342,7 +351,8 @@ export function normalizeAiBuilderPlan(value: unknown): AiBuilderPlan {
   const hasPotentiallyDestructiveChanges =
     plan.changes.pages_to_update.length > 0 ||
     plan.changes.fields_to_update.length > 0 ||
-    plan.changes.layout_changes.length > 0
+    plan.changes.layout_changes.length > 0 ||
+    plan.changes.archives.length > 0
 
   const normalizedPlan = {
     ...plan,
@@ -357,6 +367,15 @@ export function normalizeAiBuilderPlan(value: unknown): AiBuilderPlan {
       views_to_create: plan.changes.views_to_create,
       widgets_to_create: plan.changes.widgets_to_create,
       layout_changes: plan.changes.layout_changes,
+      archives: plan.changes.archives,
+      restores: plan.changes.restores,
+      relations_to_create: plan.changes.relations_to_create,
+      record_links: plan.changes.record_links,
+      formulas_to_set: plan.changes.formulas_to_set,
+      files_to_attach: plan.changes.files_to_attach,
+      locations_to_set: plan.changes.locations_to_set,
+      view_layout_changes: plan.changes.view_layout_changes,
+      dashboard_blocks_to_add: plan.changes.dashboard_blocks_to_add,
     },
     warnings: hasPotentiallyDestructiveChanges
       ? [
@@ -380,6 +399,15 @@ export function planChangeCount(plan: AiBuilderPlan) {
     plan.changes.fields_to_update.length +
     plan.changes.views_to_create.length +
     plan.changes.widgets_to_create.length +
-    plan.changes.layout_changes.length
+    plan.changes.layout_changes.length +
+    plan.changes.archives.length +
+    plan.changes.restores.length +
+    plan.changes.relations_to_create.length +
+    plan.changes.record_links.length +
+    plan.changes.formulas_to_set.length +
+    plan.changes.files_to_attach.length +
+    plan.changes.locations_to_set.length +
+    plan.changes.view_layout_changes.length +
+    plan.changes.dashboard_blocks_to_add.length
   )
 }

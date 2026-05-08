@@ -975,11 +975,188 @@ export async function applyAiBuilderPlan({
     skipped.push('Layout change reordering is preview-only in this module.')
   }
 
+  await applyPhase4Operations({ admin, workspaceId, plan, operations, skipped })
+
   revalidateAiBuilderWorkspace(workspaceId)
 
   return {
     operations,
     skipped,
+  }
+}
+
+async function applyPhase4Operations({
+  admin,
+  workspaceId,
+  plan,
+  operations,
+  skipped,
+}: {
+  admin: AdminClient
+  workspaceId: string
+  plan: AiBuilderPlan
+  operations: AppliedOperation[]
+  skipped: string[]
+}) {
+  for (const action of actionObjects(plan.changes.archives)) {
+    const kind = stringValue(action, ['kind', 'type'], '')
+    const id = stringValue(action, ['id', 'target_id'], '')
+    const table = archiveTableForKind(kind)
+    if (!table || !id) {
+      skipped.push('Skipped archive: missing kind or id')
+      continue
+    }
+    const { error } = await admin
+      .from(table)
+      .update({ archived_at: new Date().toISOString() })
+      .eq('workspace_id', workspaceId)
+      .eq('id', id)
+    if (error) skipped.push(`Archive failed: ${error.message}`)
+    else operations.push({ type: 'ai_archive', kind, id } as unknown as AppliedOperation)
+  }
+
+  for (const action of actionObjects(plan.changes.restores)) {
+    const kind = stringValue(action, ['kind', 'type'], '')
+    const id = stringValue(action, ['id', 'target_id'], '')
+    const table = archiveTableForKind(kind)
+    if (!table || !id) {
+      skipped.push('Skipped restore: missing kind or id')
+      continue
+    }
+    const { error } = await admin
+      .from(table)
+      .update({ archived_at: null })
+      .eq('workspace_id', workspaceId)
+      .eq('id', id)
+    if (error) skipped.push(`Restore failed: ${error.message}`)
+    else operations.push({ type: 'ai_restore', kind, id } as unknown as AppliedOperation)
+  }
+
+  if (plan.changes.relations_to_create.length > 0) {
+    skipped.push(
+      `${plan.changes.relations_to_create.length} relation(s) require manual setup via the relation wizard.`,
+    )
+  }
+
+  for (const action of actionObjects(plan.changes.record_links)) {
+    const relationId = stringValue(action, ['relation_id', 'relationId'], '')
+    const sourceRecordId = stringValue(action, ['source_record_id', 'sourceRecordId'], '')
+    const targetRecordId = stringValue(action, ['target_record_id', 'targetRecordId'], '')
+    if (!relationId || !sourceRecordId || !targetRecordId) {
+      skipped.push('Skipped link: missing relation_id, source_record_id, or target_record_id')
+      continue
+    }
+    const { error } = await admin
+      .from('collection_record_links')
+      .upsert(
+        {
+          workspace_id: workspaceId,
+          relation_id: relationId,
+          source_record_id: sourceRecordId,
+          target_record_id: targetRecordId,
+        },
+        { onConflict: 'relation_id,source_record_id,target_record_id' },
+      )
+    if (error) skipped.push(`Link failed: ${error.message}`)
+  }
+
+  for (const action of actionObjects(plan.changes.formulas_to_set)) {
+    const fieldId = stringValue(action, ['field_id', 'fieldId'], '')
+    const source = stringValue(action, ['source', 'formula', 'expression'], '')
+    if (!fieldId) {
+      skipped.push('Skipped formula: missing field_id')
+      continue
+    }
+    const { parseFormula } = await import('@/lib/databases/formula/grammar')
+    const parsed = parseFormula(source)
+    if (!parsed.ok) {
+      skipped.push(`Formula parse failed: ${parsed.error}`)
+      continue
+    }
+    const formulaJson: Json = {
+      source,
+      ast: parsed.ast as unknown as Json,
+      dependsOn: parsed.referencedFieldIds,
+      updatedAt: new Date().toISOString(),
+    }
+    const { error } = await admin
+      .from('collection_fields')
+      .update({ field_type: 'formula', formula_json: formulaJson })
+      .eq('workspace_id', workspaceId)
+      .eq('id', fieldId)
+    if (error) skipped.push(`Formula save failed: ${error.message}`)
+  }
+
+  for (const action of actionObjects(plan.changes.files_to_attach)) {
+    const recordId = stringValue(action, ['record_id', 'recordId'], '')
+    const fieldId = stringValue(action, ['field_id', 'fieldId'], '')
+    const externalUrl = stringValue(action, ['external_url', 'externalUrl'], '')
+    const filename =
+      stringValue(action, ['filename', 'name'], '') || externalUrl.split('/').pop() || 'link'
+    if (!recordId || !fieldId || !externalUrl) {
+      skipped.push('Skipped file attach: missing record_id, field_id, or external_url')
+      continue
+    }
+    const { error } = await admin.from('collection_files').insert({
+      workspace_id: workspaceId,
+      record_id: recordId,
+      field_id: fieldId,
+      source: 'external_link',
+      external_url: externalUrl,
+      filename,
+    })
+    if (error) skipped.push(`File attach failed: ${error.message}`)
+  }
+
+  for (const action of actionObjects(plan.changes.locations_to_set)) {
+    const recordId = stringValue(action, ['record_id', 'recordId'], '')
+    const fieldId = stringValue(action, ['field_id', 'fieldId'], '')
+    const address = stringValue(action, ['address'], '')
+    const lat = Number(stringValue(action, ['lat', 'latitude'], ''))
+    const lng = Number(stringValue(action, ['lng', 'longitude'], ''))
+    if (!recordId || !fieldId || !address || !Number.isFinite(lat) || !Number.isFinite(lng)) {
+      skipped.push('Skipped location: missing record_id, field_id, address, lat, or lng')
+      continue
+    }
+    const { error } = await admin
+      .from('record_values')
+      .upsert(
+        {
+          workspace_id: workspaceId,
+          record_id: recordId,
+          field_id: fieldId,
+          value_json: { value: { address, lat, lng, provider: 'osm' } as Json },
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: 'record_id,field_id' },
+      )
+    if (error) skipped.push(`Location save failed: ${error.message}`)
+  }
+
+  if (plan.changes.view_layout_changes.length > 0) {
+    skipped.push(
+      `${plan.changes.view_layout_changes.length} view layout change(s) are preview-only.`,
+    )
+  }
+  if (plan.changes.dashboard_blocks_to_add.length > 0) {
+    skipped.push(
+      `${plan.changes.dashboard_blocks_to_add.length} dashboard block(s) need user confirmation in the dashboard editor.`,
+    )
+  }
+}
+
+function archiveTableForKind(kind: string) {
+  switch (kind) {
+    case 'record':
+      return 'collection_records' as const
+    case 'field':
+      return 'collection_fields' as const
+    case 'collection':
+      return 'collections' as const
+    case 'view':
+      return 'views' as const
+    default:
+      return null
   }
 }
 

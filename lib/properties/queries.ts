@@ -58,6 +58,7 @@ export async function getPropertyEngineData(
     .from('collections')
     .select('*')
     .eq('workspace_id', workspaceId)
+    .is('archived_at', null)
     .order('created_at', { ascending: true })
 
   if (collectionsError) {
@@ -83,6 +84,7 @@ export async function getPropertyEngineData(
     .select('*')
     .eq('workspace_id', workspaceId)
     .in('collection_id', collectionIds)
+    .is('archived_at', null)
     .order('position', { ascending: true })
     .order('created_at', { ascending: true })
 
@@ -97,6 +99,7 @@ export async function getPropertyEngineData(
       .select('*')
       .eq('workspace_id', workspaceId)
       .in('collection_id', collectionIds)
+      .is('archived_at', null)
       .order('created_at', { ascending: false })
       .limit(50),
   ])

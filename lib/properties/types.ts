@@ -16,10 +16,28 @@ export const PROPERTY_TYPES = [
   'file',
   'person',
   'relation',
+  'formula',
+  'location',
   'formula_placeholder',
 ] as const
 
 export type PropertyType = (typeof PROPERTY_TYPES)[number]
+
+export const TEXT_SHAPED_TYPES: readonly PropertyType[] = [
+  'text',
+  'long_text',
+  'url',
+  'email',
+  'phone',
+] as const
+
+export function isTextShapedType(value: PropertyType) {
+  return TEXT_SHAPED_TYPES.includes(value)
+}
+
+export function normalizePropertyType(value: PropertyType): PropertyType {
+  return value === 'formula_placeholder' ? 'formula' : value
+}
 
 export type FieldOption = {
   id: string
@@ -115,10 +133,46 @@ export const PROPERTY_TYPE_META: Record<
     label: 'Relation',
     description: 'Related record reference placeholder for V1.',
   },
+  formula: {
+    label: 'Formula',
+    description: 'Calculated value derived from other fields.',
+  },
+  location: {
+    label: 'Location',
+    description: 'Address with latitude and longitude.',
+  },
   formula_placeholder: {
     label: 'Formula placeholder',
-    description: 'Reserved calculated field slot.',
+    description: 'Legacy slot; treated as formula at runtime.',
   },
+}
+
+export type LocationValue = {
+  address: string
+  lat: number
+  lng: number
+  provider?: 'osm'
+}
+
+export type FileValueItem = {
+  id: string
+  source: 'upload' | 'external_link'
+  filename: string
+  mimeType?: string
+  sizeBytes?: number
+  storagePath?: string
+  externalUrl?: string
+}
+
+export type CellOptimisticState = {
+  fieldId: string
+  state: 'idle' | 'saving' | 'saved' | 'error'
+  clientRequestId: string
+  errorMessage?: string
+}
+
+export type CollectionRecordWithSaveState = CollectionRecordWithValues & {
+  optimisticState?: CellOptimisticState[]
 }
 
 export const OPTION_BACKED_TYPES = PROPERTY_TYPES.filter(

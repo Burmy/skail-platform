@@ -1,10 +1,11 @@
 import { Agent, Collection, ActivityItem, ChecklistItem, Widget } from './types'
 
-export const navItems = [
-  { label: 'Home', href: '/', icon: 'Home' },
-  { label: 'Pages', href: '/pages', icon: 'FileText' },
+// Top-of-sidebar single link.
+export const homeNav = { label: 'Home', href: '/pages', icon: 'Home' as const }
+
+// Bottom "SKAIL Apps" section.
+export const skailApps = [
   { label: 'Databases', href: '/databases', icon: 'Database' },
-  { label: 'Views', href: '/views', icon: 'LayoutGrid' },
   { label: 'Templates', href: '/templates', icon: 'Copy' },
   { label: 'AI Builder', href: '/ai-builder', icon: 'Sparkles', badge: 'AI' },
   { label: 'Agents', href: '/agents', icon: 'Bot' },
@@ -12,6 +13,10 @@ export const navItems = [
   { label: 'Theme', href: '/settings/theme', icon: 'Palette' },
   { label: 'Settings', href: '/settings', icon: 'Settings' },
 ]
+
+// Legacy export kept for any code that still imports `navItems` —
+// new sidebar uses homeNav + skailApps + dynamic Pages section.
+export const navItems = [homeNav, ...skailApps]
 
 export const collections: Collection[] = [
   {

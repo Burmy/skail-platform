@@ -3,129 +3,45 @@
 import { revalidatePath } from 'next/cache'
 import { z } from 'zod'
 
-import {
-  defaultWidgetConfig,
-  defaultWidgetTitle,
-  DUPLICATE_PAGE_MODES,
-  serializeWidgetConfig,
-  WIDGET_SOURCE_TYPES,
-  WIDGET_TYPES,
-  type DuplicatePageMode,
-  type WidgetSourceType,
-  type WidgetType,
-} from '@/lib/layout/types'
-import type { LayoutWidget } from '@/lib/supabase/database.types'
-import { createAdminClient } from '@/lib/supabase/admin'
 import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 import {
-  parseViewConfig,
-  serializeViewConfig,
-  type ViewConfig,
-} from '@/lib/views/types'
+  getCurrentUserPageAccess,
+  getCurrentUserStackAccess,
+  pageIsInsideShareScope,
+  resolveShareToken,
+  type PageAccessLevel,
+} from '@/lib/pages/access'
 
-export type LayoutActionState = {
-  status: 'idle' | 'error' | 'success'
-  message?: string
+// ---------------------------------------------------------------------------
+// Result shape (mirrors app/databases/actions.ts ActionResult)
+// ---------------------------------------------------------------------------
+export type PageActionResult<T = void> =
+  | { ok: true; data?: T; clientRequestId?: string }
+  | { ok: false; error: string; clientRequestId?: string }
+
+function ok<T>(data?: T, clientRequestId?: string): PageActionResult<T> {
+  return { ok: true, data, clientRequestId }
 }
 
-type AdminClient = ReturnType<typeof createAdminClient>
-
-const initialActionState: LayoutActionState = {
-  status: 'idle',
+function fail<T = void>(message: string, clientRequestId?: string): PageActionResult<T> {
+  return { ok: false, error: message, clientRequestId }
 }
-
-const formString = z.preprocess(
-  (value) => (typeof value === 'string' ? value : ''),
-  z.string(),
-)
-
-const textInput = (max = 120) =>
-  formString.pipe(
-    z
-      .string()
-      .trim()
-      .min(1, 'Enter a value.')
-      .max(max, `Use ${max} characters or fewer.`),
-  )
-
-const workspaceScopedSchema = z.object({
-  workspaceId: z.string().uuid(),
-})
-
-const pageScopedSchema = workspaceScopedSchema.extend({
-  pageId: z.string().uuid(),
-})
-
-const widgetScopedSchema = workspaceScopedSchema.extend({
-  widgetId: z.string().uuid(),
-})
-
-const createPageSchema = workspaceScopedSchema.extend({
-  title: textInput(80),
-})
-
-const renamePageSchema = pageScopedSchema.extend({
-  title: textInput(80),
-})
-
-const duplicatePageSchema = pageScopedSchema.extend({
-  mode: z.enum(DUPLICATE_PAGE_MODES),
-})
-
-const addWidgetSchema = pageScopedSchema.extend({
-  widgetType: z.enum(WIDGET_TYPES),
-  dataSourceType: z.enum(WIDGET_SOURCE_TYPES),
-  dataSourceId: formString,
-})
-
-const updateWidgetSchema = widgetScopedSchema.extend({
-  title: textInput(80),
-  dataSourceType: z.enum(WIDGET_SOURCE_TYPES),
-  dataSourceId: formString,
-  content: formString,
-  embedUrl: formString,
-})
-
-const reorderWidgetSchema = widgetScopedSchema.extend({
-  direction: z.enum(['up', 'down']),
-})
 
 function firstError(error: z.ZodError) {
-  return error.issues[0]?.message ?? 'Check the form and try again.'
+  return error.issues[0]?.message ?? 'Validation failed.'
 }
 
-function success(message: string): LayoutActionState {
-  return {
-    status: 'success',
-    message,
-  }
-}
-
-function error(message: string): LayoutActionState {
-  return {
-    status: 'error',
-    message,
-  }
-}
-
-function revalidateWorkspacePages(workspaceId: string) {
-  revalidatePath(`/pages?workspace_id=${workspaceId}`)
-  revalidatePath('/pages')
-  revalidatePath(`/databases?workspace_id=${workspaceId}`)
-  revalidatePath(`/views?workspace_id=${workspaceId}`)
-}
-
+// ---------------------------------------------------------------------------
+// Workspace access helper
+// ---------------------------------------------------------------------------
 async function requireWorkspaceAccess(workspaceId: string) {
   const supabase = await createClient()
   const {
     data: { user },
   } = await supabase.auth.getUser()
-
   if (!user) {
-    return {
-      ok: false as const,
-      state: error('Sign in before editing pages.'),
-    }
+    return { ok: false as const, error: 'Sign in before editing pages.' }
   }
 
   const { data: membership, error: membershipError } = await supabase
@@ -137,17 +53,10 @@ async function requireWorkspaceAccess(workspaceId: string) {
     .maybeSingle()
 
   if (membershipError) {
-    return {
-      ok: false as const,
-      state: error(membershipError.message),
-    }
+    return { ok: false as const, error: membershipError.message }
   }
-
   if (!membership) {
-    return {
-      ok: false as const,
-      state: error('You do not have access to this workspace.'),
-    }
+    return { ok: false as const, error: 'No access to this workspace.' }
   }
 
   try {
@@ -157,924 +66,726 @@ async function requireWorkspaceAccess(workspaceId: string) {
       roleKey: membership.role_key,
       user,
     }
-  } catch (adminError) {
+  } catch (e) {
     return {
       ok: false as const,
-      state: error(
-        adminError instanceof Error
-          ? adminError.message
-          : 'Supabase admin writes are not configured.',
-      ),
+      error: e instanceof Error ? e.message : 'Admin client unavailable.',
     }
   }
 }
 
-async function nextPagePosition(admin: AdminClient, workspaceId: string) {
-  const { data, error: queryError } = await admin
-    .from('pages')
-    .select('position')
-    .eq('workspace_id', workspaceId)
-    .order('position', { ascending: false })
-    .limit(1)
-
-  if (queryError) {
-    throw new Error(queryError.message)
-  }
-
-  return (data?.[0]?.position ?? -1) + 1
-}
-
-async function nextWidgetPosition(
-  admin: AdminClient,
+async function requirePagePermission(
   workspaceId: string,
   pageId: string,
+  minimum: PageAccessLevel,
 ) {
-  const { data, error: queryError } = await admin
-    .from('widgets')
-    .select('position')
-    .eq('workspace_id', workspaceId)
-    .eq('page_id', pageId)
-    .order('position', { ascending: false })
-    .limit(1)
-
-  if (queryError) {
-    throw new Error(queryError.message)
-  }
-
-  return (data?.[0]?.position ?? -1) + 1
-}
-
-async function getPage(
-  admin: AdminClient,
-  workspaceId: string,
-  pageId: string,
-) {
-  const { data, error: pageError } = await admin
-    .from('pages')
-    .select('*')
-    .eq('workspace_id', workspaceId)
-    .eq('id', pageId)
-    .maybeSingle()
-
-  if (pageError) {
-    throw new Error(pageError.message)
-  }
-
-  return data
-}
-
-async function getWidget(
-  admin: AdminClient,
-  workspaceId: string,
-  widgetId: string,
-) {
-  const { data, error: widgetError } = await admin
-    .from('widgets')
-    .select('*')
-    .eq('workspace_id', workspaceId)
-    .eq('id', widgetId)
-    .maybeSingle()
-
-  if (widgetError) {
-    throw new Error(widgetError.message)
-  }
-
-  return data
-}
-
-async function resolveDataSource(
-  admin: AdminClient,
-  workspaceId: string,
-  dataSourceType: WidgetSourceType,
-  dataSourceId: string,
-) {
-  if (dataSourceType === 'none' || !dataSourceId) {
+  const access = await getCurrentUserPageAccess({ workspaceId, pageId, minimum })
+  if (!access) {
     return {
-      type: null,
-      id: null,
+      ok: false as const,
+      error:
+        minimum === 'manage'
+          ? 'You need manage access for this page.'
+          : 'You do not have access to this page.',
     }
-  }
-
-  if (dataSourceType === 'collection') {
-    const { data: collection, error: collectionError } = await admin
-      .from('collections')
-      .select('id')
-      .eq('workspace_id', workspaceId)
-      .eq('id', dataSourceId)
-      .maybeSingle()
-
-    if (collectionError) {
-      throw new Error(collectionError.message)
-    }
-
-    if (!collection) {
-      return null
-    }
-  }
-
-  if (dataSourceType === 'view') {
-    const { data: view, error: viewError } = await admin
-      .from('views')
-      .select('id')
-      .eq('workspace_id', workspaceId)
-      .eq('id', dataSourceId)
-      .maybeSingle()
-
-    if (viewError) {
-      throw new Error(viewError.message)
-    }
-
-    if (!view) {
-      return null
-    }
-  }
-
-  return {
-    type: dataSourceType,
-    id: dataSourceId,
-  }
-}
-
-function widgetConfigForForm(widgetType: WidgetType, formData: z.infer<typeof updateWidgetSchema>) {
-  const config = defaultWidgetConfig(widgetType)
-
-  if (widgetType === 'text' || widgetType === 'heading') {
-    return {
-      ...config,
-      content: formData.content.trim(),
-    }
-  }
-
-  if (widgetType === 'embed') {
-    return {
-      ...config,
-      url: formData.embedUrl.trim(),
-    }
-  }
-
-  return config
-}
-
-function remapFieldId(fieldId: string | null, fieldIdMap: Map<string, string>) {
-  if (!fieldId) {
-    return null
-  }
-
-  return fieldIdMap.get(fieldId) ?? null
-}
-
-function remapViewConfig(config: ViewConfig, fieldIdMap: Map<string, string>) {
-  return {
-    visibleFieldIds: config.visibleFieldIds.flatMap((fieldId) => {
-      const mappedFieldId = fieldIdMap.get(fieldId)
-
-      return mappedFieldId ? [mappedFieldId] : []
-    }),
-    filters: config.filters.flatMap((filter) => {
-      const fieldId = fieldIdMap.get(filter.fieldId)
-
-      return fieldId
-        ? [
-            {
-              ...filter,
-              id: crypto.randomUUID(),
-              fieldId,
-            },
-          ]
-        : []
-    }),
-    sorts: config.sorts.flatMap((sort) => {
-      const fieldId = fieldIdMap.get(sort.fieldId)
-
-      return fieldId
-        ? [
-            {
-              ...sort,
-              id: crypto.randomUUID(),
-              fieldId,
-            },
-          ]
-        : []
-    }),
-    kanban: {
-      groupFieldId: remapFieldId(config.kanban.groupFieldId, fieldIdMap),
-    },
-    calendar: {
-      dateFieldId: remapFieldId(config.calendar.dateFieldId, fieldIdMap),
-    },
-  } satisfies ViewConfig
-}
-
-async function duplicateCollectionForPage(
-  admin: AdminClient,
-  workspaceId: string,
-  sourceCollectionId: string,
-  copyRecords: boolean,
-  collectionMap: Map<string, { id: string; fieldIdMap: Map<string, string> }>,
-) {
-  const existing = collectionMap.get(sourceCollectionId)
-
-  if (existing) {
-    return existing
-  }
-
-  const { data: collection, error: collectionError } = await admin
-    .from('collections')
-    .select('*')
-    .eq('workspace_id', workspaceId)
-    .eq('id', sourceCollectionId)
-    .maybeSingle()
-
-  if (collectionError) {
-    throw new Error(collectionError.message)
-  }
-
-  if (!collection) {
-    throw new Error('Collection not found.')
-  }
-
-  const { data: createdCollection, error: insertError } = await admin
-    .from('collections')
-    .insert({
-      workspace_id: workspaceId,
-      name: `${collection.name} copy`,
-      description: collection.description,
-      icon: collection.icon,
-    })
-    .select('id')
-    .single()
-
-  if (insertError) {
-    throw new Error(insertError.message)
-  }
-
-  const { data: fields, error: fieldsError } = await admin
-    .from('collection_fields')
-    .select('*')
-    .eq('workspace_id', workspaceId)
-    .eq('collection_id', sourceCollectionId)
-    .order('position', { ascending: true })
-
-  if (fieldsError) {
-    throw new Error(fieldsError.message)
-  }
-
-  const fieldIdMap = new Map<string, string>()
-
-  for (const field of fields ?? []) {
-    const { data: createdField, error: fieldInsertError } = await admin
-      .from('collection_fields')
-      .insert({
-        workspace_id: workspaceId,
-        collection_id: createdCollection.id,
-        name: field.name,
-        field_type: field.field_type,
-        semantic_role: field.semantic_role,
-        options_json: field.options_json,
-        is_system: field.is_system,
-        position: field.position,
-      })
-      .select('id')
-      .single()
-
-    if (fieldInsertError) {
-      throw new Error(fieldInsertError.message)
-    }
-
-    fieldIdMap.set(field.id, createdField.id)
-  }
-
-  if (copyRecords) {
-    await duplicateCollectionRecords(
-      admin,
-      workspaceId,
-      sourceCollectionId,
-      createdCollection.id,
-      fieldIdMap,
-    )
-  }
-
-  const result = {
-    id: createdCollection.id,
-    fieldIdMap,
-  }
-
-  collectionMap.set(sourceCollectionId, result)
-  return result
-}
-
-async function duplicateCollectionRecords(
-  admin: AdminClient,
-  workspaceId: string,
-  sourceCollectionId: string,
-  targetCollectionId: string,
-  fieldIdMap: Map<string, string>,
-) {
-  const { data: records, error: recordsError } = await admin
-    .from('collection_records')
-    .select('*')
-    .eq('workspace_id', workspaceId)
-    .eq('collection_id', sourceCollectionId)
-    .order('created_at', { ascending: true })
-
-  if (recordsError) {
-    throw new Error(recordsError.message)
-  }
-
-  const recordsList = records ?? []
-  const recordIds = recordsList.map((record) => record.id)
-  const valuesResult =
-    recordIds.length > 0
-      ? await admin
-          .from('record_values')
-          .select('*')
-          .eq('workspace_id', workspaceId)
-          .in('record_id', recordIds)
-      : { data: [], error: null }
-
-  if (valuesResult.error) {
-    throw new Error(valuesResult.error.message)
-  }
-
-  const valuesByRecord = new Map<string, typeof valuesResult.data>()
-
-  valuesResult.data?.forEach((value) => {
-    if (!value.record_id) {
-      return
-    }
-
-    const currentValues = valuesByRecord.get(value.record_id) ?? []
-    valuesByRecord.set(value.record_id, [...currentValues, value])
-  })
-
-  for (const record of recordsList) {
-    const { data: createdRecord, error: recordInsertError } = await admin
-      .from('collection_records')
-      .insert({
-        workspace_id: workspaceId,
-        collection_id: targetCollectionId,
-        title: record.title,
-        created_by: record.created_by,
-      })
-      .select('id')
-      .single()
-
-    if (recordInsertError) {
-      throw new Error(recordInsertError.message)
-    }
-
-    const valueRows =
-      valuesByRecord.get(record.id)?.flatMap((value) => {
-        if (!value.field_id) {
-          return []
-        }
-
-        const newFieldId = fieldIdMap.get(value.field_id)
-
-        return newFieldId
-          ? [
-              {
-                workspace_id: workspaceId,
-                record_id: createdRecord.id,
-                field_id: newFieldId,
-                value_json: value.value_json,
-              },
-            ]
-          : []
-      }) ?? []
-
-    if (valueRows.length > 0) {
-      const { error: valuesInsertError } = await admin
-        .from('record_values')
-        .insert(valueRows)
-
-      if (valuesInsertError) {
-        throw new Error(valuesInsertError.message)
-      }
-    }
-  }
-}
-
-async function duplicateViewForPage(
-  admin: AdminClient,
-  workspaceId: string,
-  sourceViewId: string,
-  copyRecords: boolean,
-  collectionMap: Map<string, { id: string; fieldIdMap: Map<string, string> }>,
-  viewMap: Map<string, string>,
-) {
-  const existingViewId = viewMap.get(sourceViewId)
-
-  if (existingViewId) {
-    return existingViewId
-  }
-
-  const { data: view, error: viewError } = await admin
-    .from('views')
-    .select('*')
-    .eq('workspace_id', workspaceId)
-    .eq('id', sourceViewId)
-    .maybeSingle()
-
-  if (viewError) {
-    throw new Error(viewError.message)
-  }
-
-  if (!view || !view.collection_id) {
-    throw new Error('View not found.')
-  }
-
-  const collectionCopy = await duplicateCollectionForPage(
-    admin,
-    workspaceId,
-    view.collection_id,
-    copyRecords,
-    collectionMap,
-  )
-  const config = parseViewConfig(view.config_json)
-  const remappedConfig = remapViewConfig(config, collectionCopy.fieldIdMap)
-  const { data: createdView, error: insertError } = await admin
-    .from('views')
-    .insert({
-      workspace_id: workspaceId,
-      collection_id: collectionCopy.id,
-      name: `${view.name} copy`,
-      view_type: view.view_type,
-      config_json: serializeViewConfig(remappedConfig),
-    })
-    .select('id')
-    .single()
-
-  if (insertError) {
-    throw new Error(insertError.message)
-  }
-
-  viewMap.set(sourceViewId, createdView.id)
-  return createdView.id
-}
-
-async function remapWidgetDataSourceForDuplicate(
-  admin: AdminClient,
-  workspaceId: string,
-  widget: LayoutWidget,
-  mode: DuplicatePageMode,
-  collectionMap: Map<string, { id: string; fieldIdMap: Map<string, string> }>,
-  viewMap: Map<string, string>,
-) {
-  if (mode === 'layout_only' || !widget.data_source_type || !widget.data_source_id) {
-    return {
-      dataSourceType: widget.data_source_type,
-      dataSourceId: widget.data_source_id,
-    }
-  }
-
-  const copyRecords = mode === 'everything'
-
-  if (widget.data_source_type === 'collection') {
-    const collectionCopy = await duplicateCollectionForPage(
-      admin,
-      workspaceId,
-      widget.data_source_id,
-      copyRecords,
-      collectionMap,
-    )
-
-    return {
-      dataSourceType: 'collection',
-      dataSourceId: collectionCopy.id,
-    }
-  }
-
-  if (widget.data_source_type === 'view') {
-    const viewId = await duplicateViewForPage(
-      admin,
-      workspaceId,
-      widget.data_source_id,
-      copyRecords,
-      collectionMap,
-      viewMap,
-    )
-
-    return {
-      dataSourceType: 'view',
-      dataSourceId: viewId,
-    }
-  }
-
-  return {
-    dataSourceType: null,
-    dataSourceId: null,
-  }
-}
-
-export async function createPage(
-  _state: LayoutActionState = initialActionState,
-  formData: FormData,
-): Promise<LayoutActionState> {
-  const parsed = createPageSchema.safeParse({
-    workspaceId: formData.get('workspaceId'),
-    title: formData.get('title'),
-  })
-
-  if (!parsed.success) {
-    return error(firstError(parsed.error))
-  }
-
-  const access = await requireWorkspaceAccess(parsed.data.workspaceId)
-
-  if (!access.ok) {
-    return access.state
   }
 
   try {
-    const position = await nextPagePosition(access.admin, parsed.data.workspaceId)
-    const { error: insertError } = await access.admin.from('pages').insert({
-      workspace_id: parsed.data.workspaceId,
-      title: parsed.data.title,
-      icon: 'file-text',
-      visibility_scope: 'workspace',
-      position,
-    })
-
-    if (insertError) {
-      return error(insertError.message)
+    return {
+      ok: true as const,
+      admin: createAdminClient(),
+      roleKey: access.roleKey,
+      user: {
+        id: access.userId,
+        email: access.userEmail,
+      },
+      pageAccess: access,
     }
-  } catch (createError) {
-    return error(createError instanceof Error ? createError.message : 'Page not created.')
+  } catch (e) {
+    return {
+      ok: false as const,
+      error: e instanceof Error ? e.message : 'Admin client unavailable.',
+    }
   }
-
-  revalidateWorkspacePages(parsed.data.workspaceId)
-  return success('Page created.')
 }
 
-export async function renamePage(
-  _state: LayoutActionState = initialActionState,
-  formData: FormData,
-): Promise<LayoutActionState> {
-  const parsed = renamePageSchema.safeParse({
-    workspaceId: formData.get('workspaceId'),
-    pageId: formData.get('pageId'),
-    title: formData.get('title'),
+async function requireStackPermission(
+  workspaceId: string,
+  stackId: string,
+  minimum: PageAccessLevel,
+) {
+  const access = await getCurrentUserStackAccess({ workspaceId, stackId, minimum })
+  if (!access) {
+    return {
+      ok: false as const,
+      error:
+        minimum === 'manage'
+          ? 'You need manage access for this stack.'
+          : 'You do not have access to this stack.',
+    }
+  }
+
+  try {
+    return {
+      ok: true as const,
+      admin: createAdminClient(),
+      roleKey: access.roleKey,
+      user: {
+        id: access.user.id,
+        email: access.user.email ?? null,
+      },
+      stackAccess: access,
+    }
+  } catch (e) {
+    return {
+      ok: false as const,
+      error: e instanceof Error ? e.message : 'Admin client unavailable.',
+    }
+  }
+}
+
+function revalidatePageRoutes(pageId?: string) {
+  revalidatePath('/pages')
+  revalidatePath('/pages/trash')
+  if (pageId) revalidatePath(`/p/${pageId}`)
+}
+
+// ===========================================================================
+// STACKS
+// ===========================================================================
+const stackBase = z.object({
+  workspaceId: z.string().uuid(),
+})
+
+const createStackSchema = stackBase.extend({
+  name: z.string().trim().min(1).max(80),
+  icon: z.string().trim().max(80).optional(),
+})
+
+export async function createStack(
+  input: z.input<typeof createStackSchema>,
+): Promise<PageActionResult<{ id: string }>> {
+  const parsed = createStackSchema.safeParse(input)
+  if (!parsed.success) return fail(firstError(parsed.error))
+  const access = await requireWorkspaceAccess(parsed.data.workspaceId)
+  if (!access.ok) return fail(access.error)
+
+  const { data: maxRow } = await access.admin
+    .from('page_stacks')
+    .select('position')
+    .eq('workspace_id', parsed.data.workspaceId)
+    .order('position', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+  const nextPos = (maxRow?.position ?? -1) + 1
+
+  const { data, error } = await access.admin
+    .from('page_stacks')
+    .insert({
+      workspace_id: parsed.data.workspaceId,
+      name: parsed.data.name,
+      icon: parsed.data.icon ?? null,
+      position: nextPos,
+      created_by: access.user.id,
+    })
+    .select('id')
+    .single()
+
+  if (error) return fail(error.message)
+  revalidatePageRoutes()
+  return ok({ id: data.id })
+}
+
+const renameStackSchema = stackBase.extend({
+  stackId: z.string().uuid(),
+  name: z.string().trim().min(1).max(80),
+})
+
+export async function renameStack(
+  input: z.input<typeof renameStackSchema>,
+): Promise<PageActionResult> {
+  const parsed = renameStackSchema.safeParse(input)
+  if (!parsed.success) return fail(firstError(parsed.error))
+  const access = await requireStackPermission(
+    parsed.data.workspaceId,
+    parsed.data.stackId,
+    'manage',
+  )
+  if (!access.ok) return fail(access.error)
+
+  const { error } = await access.admin
+    .from('page_stacks')
+    .update({ name: parsed.data.name, updated_at: new Date().toISOString() })
+    .eq('workspace_id', parsed.data.workspaceId)
+    .eq('id', parsed.data.stackId)
+
+  if (error) return fail(error.message)
+  revalidatePageRoutes()
+  return ok()
+}
+
+const archiveStackSchema = stackBase.extend({ stackId: z.string().uuid() })
+
+export async function archiveStack(
+  input: z.input<typeof archiveStackSchema>,
+): Promise<PageActionResult> {
+  const parsed = archiveStackSchema.safeParse(input)
+  if (!parsed.success) return fail(firstError(parsed.error))
+  const access = await requireStackPermission(
+    parsed.data.workspaceId,
+    parsed.data.stackId,
+    'manage',
+  )
+  if (!access.ok) return fail(access.error)
+
+  // Detach pages from the stack so they don't disappear silently
+  await access.admin
+    .from('pages')
+    .update({ stack_id: null })
+    .eq('workspace_id', parsed.data.workspaceId)
+    .eq('stack_id', parsed.data.stackId)
+
+  const { error } = await access.admin
+    .from('page_stacks')
+    .update({ archived_at: new Date().toISOString() })
+    .eq('workspace_id', parsed.data.workspaceId)
+    .eq('id', parsed.data.stackId)
+
+  if (error) return fail(error.message)
+  revalidatePageRoutes()
+  return ok()
+}
+
+const reorderStacksSchema = stackBase.extend({
+  orderedStackIds: z.array(z.string().uuid()).min(1),
+})
+
+export async function reorderStacks(
+  input: z.input<typeof reorderStacksSchema>,
+): Promise<PageActionResult> {
+  const parsed = reorderStacksSchema.safeParse(input)
+  if (!parsed.success) return fail(firstError(parsed.error))
+  const access = await requireWorkspaceAccess(parsed.data.workspaceId)
+  if (!access.ok) return fail(access.error)
+
+  for (let i = 0; i < parsed.data.orderedStackIds.length; i++) {
+    await access.admin
+      .from('page_stacks')
+      .update({ position: i, updated_at: new Date().toISOString() })
+      .eq('workspace_id', parsed.data.workspaceId)
+      .eq('id', parsed.data.orderedStackIds[i])
+  }
+
+  revalidatePageRoutes()
+  return ok()
+}
+
+// ===========================================================================
+// PAGES
+// ===========================================================================
+const createPageSchema = stackBase.extend({
+  stackId: z.string().uuid().nullable().optional(),
+  parentPageId: z.string().uuid().nullable().optional(),
+  title: z.string().trim().max(160).optional(),
+  icon: z.string().trim().max(80).optional(),
+})
+
+export async function createPage(
+  input: z.input<typeof createPageSchema>,
+): Promise<PageActionResult<{ id: string }>> {
+  const parsed = createPageSchema.safeParse(input)
+  if (!parsed.success) return fail(firstError(parsed.error))
+  const stackId = parsed.data.stackId ?? null
+  const parentPageId = parsed.data.parentPageId ?? null
+  const access = parentPageId
+    ? await requirePagePermission(parsed.data.workspaceId, parentPageId, 'manage')
+    : stackId
+      ? await requireStackPermission(parsed.data.workspaceId, stackId, 'manage')
+      : await requireWorkspaceAccess(parsed.data.workspaceId)
+  if (!access.ok) return fail(access.error)
+
+  // Compute next position within the same scope (stack + parent).
+  let posQuery = access.admin
+    .from('pages')
+    .select('position')
+    .eq('workspace_id', parsed.data.workspaceId)
+    .order('position', { ascending: false })
+    .limit(1)
+
+  posQuery = stackId
+    ? posQuery.eq('stack_id', stackId)
+    : posQuery.is('stack_id', null)
+  posQuery = parentPageId
+    ? posQuery.eq('parent_page_id', parentPageId)
+    : posQuery.is('parent_page_id', null)
+
+  const { data: maxRow } = await posQuery.maybeSingle()
+  const nextPos = (maxRow?.position ?? -1) + 1
+
+  const { data: page, error } = await access.admin
+    .from('pages')
+    .insert({
+      workspace_id: parsed.data.workspaceId,
+      stack_id: stackId,
+      parent_page_id: parentPageId,
+      title: parsed.data.title?.trim() || 'Untitled',
+      icon: parsed.data.icon ?? null,
+      position: nextPos,
+      last_edited_by: access.user.id,
+    })
+    .select('id')
+    .single()
+
+  if (error) return fail(error.message)
+
+  // Seed an empty document
+  await access.admin.from('page_documents').insert({
+    page_id: page.id,
+    workspace_id: parsed.data.workspaceId,
+    content_json: { blocks: [] } as never,
+    version: 1,
+    updated_by: access.user.id,
   })
 
-  if (!parsed.success) {
-    return error(firstError(parsed.error))
-  }
+  // Initial visit
+  await access.admin.from('page_visits').upsert(
+    {
+      workspace_id: parsed.data.workspaceId,
+      user_id: access.user.id,
+      page_id: page.id,
+      last_opened_at: new Date().toISOString(),
+    },
+    { onConflict: 'workspace_id,user_id,page_id' },
+  )
 
-  const access = await requireWorkspaceAccess(parsed.data.workspaceId)
+  revalidatePageRoutes(page.id)
+  return ok({ id: page.id })
+}
 
-  if (!access.ok) {
-    return access.state
-  }
+const renamePageSchema = stackBase.extend({
+  pageId: z.string().uuid(),
+  title: z.string().trim().min(1).max(160),
+})
 
-  const { error: updateError } = await access.admin
+export async function renamePage(
+  input: z.input<typeof renamePageSchema>,
+): Promise<PageActionResult> {
+  const parsed = renamePageSchema.safeParse(input)
+  if (!parsed.success) return fail(firstError(parsed.error))
+  const access = await requirePagePermission(
+    parsed.data.workspaceId,
+    parsed.data.pageId,
+    'edit',
+  )
+  if (!access.ok) return fail(access.error)
+
+  const { error } = await access.admin
     .from('pages')
     .update({
       title: parsed.data.title,
+      last_edited_by: access.user.id,
       updated_at: new Date().toISOString(),
     })
     .eq('workspace_id', parsed.data.workspaceId)
     .eq('id', parsed.data.pageId)
-    .eq('is_locked', false)
 
-  if (updateError) {
-    return error(updateError.message)
-  }
-
-  revalidateWorkspacePages(parsed.data.workspaceId)
-  return success('Page renamed.')
+  if (error) return fail(error.message)
+  revalidatePageRoutes(parsed.data.pageId)
+  return ok()
 }
 
-export async function duplicatePage(
-  _state: LayoutActionState = initialActionState,
-  formData: FormData,
-): Promise<LayoutActionState> {
-  const parsed = duplicatePageSchema.safeParse({
-    workspaceId: formData.get('workspaceId'),
-    pageId: formData.get('pageId'),
-    mode: formData.get('mode'),
-  })
+const setPageIconSchema = stackBase.extend({
+  pageId: z.string().uuid(),
+  icon: z.string().trim().max(80).nullable(),
+})
 
-  if (!parsed.success) {
-    return error(firstError(parsed.error))
-  }
+export async function setPageIcon(
+  input: z.input<typeof setPageIconSchema>,
+): Promise<PageActionResult> {
+  const parsed = setPageIconSchema.safeParse(input)
+  if (!parsed.success) return fail(firstError(parsed.error))
+  const access = await requirePagePermission(
+    parsed.data.workspaceId,
+    parsed.data.pageId,
+    'edit',
+  )
+  if (!access.ok) return fail(access.error)
 
-  const access = await requireWorkspaceAccess(parsed.data.workspaceId)
-
-  if (!access.ok) {
-    return access.state
-  }
-
-  try {
-    const sourcePage = await getPage(
-      access.admin,
-      parsed.data.workspaceId,
-      parsed.data.pageId,
-    )
-
-    if (!sourcePage) {
-      return error('Page not found.')
-    }
-
-    const position = await nextPagePosition(access.admin, parsed.data.workspaceId)
-    const { data: createdPage, error: pageInsertError } = await access.admin
-      .from('pages')
-      .insert({
-        workspace_id: parsed.data.workspaceId,
-        parent_page_id: sourcePage.parent_page_id,
-        title: `${sourcePage.title} copy`,
-        icon: sourcePage.icon,
-        visibility_scope: sourcePage.visibility_scope,
-        position,
-      })
-      .select('id')
-      .single()
-
-    if (pageInsertError) {
-      return error(pageInsertError.message)
-    }
-
-    const { data: sourceWidgets, error: widgetsError } = await access.admin
-      .from('widgets')
-      .select('*')
-      .eq('workspace_id', parsed.data.workspaceId)
-      .eq('page_id', sourcePage.id)
-      .order('position', { ascending: true })
-
-    if (widgetsError) {
-      return error(widgetsError.message)
-    }
-
-    const collectionMap = new Map<string, { id: string; fieldIdMap: Map<string, string> }>()
-    const viewMap = new Map<string, string>()
-
-    for (const widget of sourceWidgets ?? []) {
-      const source = await remapWidgetDataSourceForDuplicate(
-        access.admin,
-        parsed.data.workspaceId,
-        widget,
-        parsed.data.mode,
-        collectionMap,
-        viewMap,
-      )
-      const { error: widgetInsertError } = await access.admin.from('widgets').insert({
-        workspace_id: parsed.data.workspaceId,
-        page_id: createdPage.id,
-        widget_type: widget.widget_type,
-        title: widget.title,
-        data_source_type: source.dataSourceType,
-        data_source_id: source.dataSourceId,
-        config_json: widget.config_json,
-        position: widget.position,
-      })
-
-      if (widgetInsertError) {
-        return error(widgetInsertError.message)
-      }
-    }
-  } catch (duplicateError) {
-    return error(
-      duplicateError instanceof Error
-        ? duplicateError.message
-        : 'Page was not duplicated.',
-    )
-  }
-
-  revalidateWorkspacePages(parsed.data.workspaceId)
-  return success('Page duplicated.')
-}
-
-export async function addWidget(
-  _state: LayoutActionState = initialActionState,
-  formData: FormData,
-): Promise<LayoutActionState> {
-  const parsed = addWidgetSchema.safeParse({
-    workspaceId: formData.get('workspaceId'),
-    pageId: formData.get('pageId'),
-    widgetType: formData.get('widgetType'),
-    dataSourceType: formData.get('dataSourceType'),
-    dataSourceId: formData.get('dataSourceId'),
-  })
-
-  if (!parsed.success) {
-    return error(firstError(parsed.error))
-  }
-
-  const access = await requireWorkspaceAccess(parsed.data.workspaceId)
-
-  if (!access.ok) {
-    return access.state
-  }
-
-  try {
-    const page = await getPage(
-      access.admin,
-      parsed.data.workspaceId,
-      parsed.data.pageId,
-    )
-
-    if (!page) {
-      return error('Page not found.')
-    }
-
-    const source = await resolveDataSource(
-      access.admin,
-      parsed.data.workspaceId,
-      parsed.data.dataSourceType,
-      parsed.data.dataSourceId,
-    )
-
-    if (!source) {
-      return error('Choose a valid data source.')
-    }
-
-    const position = await nextWidgetPosition(
-      access.admin,
-      parsed.data.workspaceId,
-      parsed.data.pageId,
-    )
-    const { error: insertError } = await access.admin.from('widgets').insert({
-      workspace_id: parsed.data.workspaceId,
-      page_id: parsed.data.pageId,
-      widget_type: parsed.data.widgetType,
-      title: defaultWidgetTitle(parsed.data.widgetType),
-      data_source_type: source.type,
-      data_source_id: source.id,
-      config_json: serializeWidgetConfig(defaultWidgetConfig(parsed.data.widgetType)),
-      position,
+  const { error } = await access.admin
+    .from('pages')
+    .update({
+      icon: parsed.data.icon,
+      last_edited_by: access.user.id,
+      updated_at: new Date().toISOString(),
     })
+    .eq('workspace_id', parsed.data.workspaceId)
+    .eq('id', parsed.data.pageId)
 
-    if (insertError) {
-      return error(insertError.message)
-    }
-  } catch (addError) {
-    return error(addError instanceof Error ? addError.message : 'Widget not added.')
-  }
-
-  revalidateWorkspacePages(parsed.data.workspaceId)
-  return success('Widget added.')
+  if (error) return fail(error.message)
+  revalidatePageRoutes(parsed.data.pageId)
+  return ok()
 }
 
-export async function updateWidget(
-  _state: LayoutActionState = initialActionState,
-  formData: FormData,
-): Promise<LayoutActionState> {
-  const parsed = updateWidgetSchema.safeParse({
-    workspaceId: formData.get('workspaceId'),
-    widgetId: formData.get('widgetId'),
-    title: formData.get('title'),
-    dataSourceType: formData.get('dataSourceType'),
-    dataSourceId: formData.get('dataSourceId'),
-    content: formData.get('content'),
-    embedUrl: formData.get('embedUrl'),
-  })
+const setPageCoverSchema = stackBase.extend({
+  pageId: z.string().uuid(),
+  coverImageUrl: z.string().nullable(),
+})
 
-  if (!parsed.success) {
-    return error(firstError(parsed.error))
+export async function setPageCover(
+  input: z.input<typeof setPageCoverSchema>,
+): Promise<PageActionResult> {
+  const parsed = setPageCoverSchema.safeParse(input)
+  if (!parsed.success) return fail(firstError(parsed.error))
+  const access = await requirePagePermission(
+    parsed.data.workspaceId,
+    parsed.data.pageId,
+    'edit',
+  )
+  if (!access.ok) return fail(access.error)
+
+  const { error } = await access.admin
+    .from('pages')
+    .update({
+      cover_image_url: parsed.data.coverImageUrl,
+      last_edited_by: access.user.id,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('workspace_id', parsed.data.workspaceId)
+    .eq('id', parsed.data.pageId)
+
+  if (error) return fail(error.message)
+  revalidatePageRoutes(parsed.data.pageId)
+  return ok()
+}
+
+const movePageSchema = stackBase.extend({
+  pageId: z.string().uuid(),
+  stackId: z.string().uuid().nullable().optional(),
+  parentPageId: z.string().uuid().nullable().optional(),
+  position: z.number().int().nonnegative().optional(),
+})
+
+export async function movePage(
+  input: z.input<typeof movePageSchema>,
+): Promise<PageActionResult> {
+  const parsed = movePageSchema.safeParse(input)
+  if (!parsed.success) return fail(firstError(parsed.error))
+  const access = await requirePagePermission(
+    parsed.data.workspaceId,
+    parsed.data.pageId,
+    'manage',
+  )
+  if (!access.ok) return fail(access.error)
+
+  const patch: {
+    updated_at: string
+    last_edited_by: string
+    stack_id?: string | null
+    parent_page_id?: string | null
+    position?: number
+  } = {
+    updated_at: new Date().toISOString(),
+    last_edited_by: access.user.id,
+  }
+  if (parsed.data.stackId !== undefined) patch.stack_id = parsed.data.stackId
+  if (parsed.data.parentPageId !== undefined) patch.parent_page_id = parsed.data.parentPageId
+  if (parsed.data.position !== undefined) patch.position = parsed.data.position
+
+  const { error } = await access.admin
+    .from('pages')
+    .update(patch)
+    .eq('workspace_id', parsed.data.workspaceId)
+    .eq('id', parsed.data.pageId)
+
+  if (error) return fail(error.message)
+  revalidatePageRoutes(parsed.data.pageId)
+  return ok()
+}
+
+const archivePageSchema = stackBase.extend({ pageId: z.string().uuid() })
+
+export async function archivePage(
+  input: z.input<typeof archivePageSchema>,
+): Promise<PageActionResult> {
+  const parsed = archivePageSchema.safeParse(input)
+  if (!parsed.success) return fail(firstError(parsed.error))
+  const access = await requirePagePermission(
+    parsed.data.workspaceId,
+    parsed.data.pageId,
+    'manage',
+  )
+  if (!access.ok) return fail(access.error)
+
+  const { error } = await access.admin
+    .from('pages')
+    .update({ archived_at: new Date().toISOString() })
+    .eq('workspace_id', parsed.data.workspaceId)
+    .eq('id', parsed.data.pageId)
+
+  if (error) return fail(error.message)
+  revalidatePageRoutes(parsed.data.pageId)
+  return ok()
+}
+
+export async function restorePage(
+  input: z.input<typeof archivePageSchema>,
+): Promise<PageActionResult> {
+  const parsed = archivePageSchema.safeParse(input)
+  if (!parsed.success) return fail(firstError(parsed.error))
+  const access = await requirePagePermission(
+    parsed.data.workspaceId,
+    parsed.data.pageId,
+    'manage',
+  )
+  if (!access.ok) return fail(access.error)
+
+  const { error } = await access.admin
+    .from('pages')
+    .update({ archived_at: null })
+    .eq('workspace_id', parsed.data.workspaceId)
+    .eq('id', parsed.data.pageId)
+
+  if (error) return fail(error.message)
+  revalidatePageRoutes(parsed.data.pageId)
+  return ok()
+}
+
+export async function hardDeletePage(
+  input: z.input<typeof archivePageSchema>,
+): Promise<PageActionResult> {
+  const parsed = archivePageSchema.safeParse(input)
+  if (!parsed.success) return fail(firstError(parsed.error))
+  const access = await requirePagePermission(
+    parsed.data.workspaceId,
+    parsed.data.pageId,
+    'manage',
+  )
+  if (!access.ok) return fail(access.error)
+
+  const { error } = await access.admin
+    .from('pages')
+    .delete()
+    .eq('workspace_id', parsed.data.workspaceId)
+    .eq('id', parsed.data.pageId)
+
+  if (error) return fail(error.message)
+  revalidatePageRoutes()
+  return ok()
+}
+
+// ===========================================================================
+// PAGE DOCUMENT (BlockNote JSON)
+// ===========================================================================
+const savePageDocumentSchema = stackBase.extend({
+  pageId: z.string().uuid(),
+  contentJson: z.unknown(),
+  expectedVersion: z.number().int().nonnegative(),
+  clientRequestId: z.string().optional(),
+})
+
+export async function savePageDocument(
+  input: z.input<typeof savePageDocumentSchema>,
+): Promise<PageActionResult<{ version: number; conflict?: boolean }>> {
+  const parsed = savePageDocumentSchema.safeParse(input)
+  if (!parsed.success) return fail(firstError(parsed.error), input.clientRequestId)
+  const access = await requirePagePermission(
+    parsed.data.workspaceId,
+    parsed.data.pageId,
+    'edit',
+  )
+  if (!access.ok) return fail(access.error, parsed.data.clientRequestId)
+
+  const { data: current, error: readErr } = await access.admin
+    .from('page_documents')
+    .select('version')
+    .eq('page_id', parsed.data.pageId)
+    .maybeSingle()
+
+  if (readErr) return fail(readErr.message, parsed.data.clientRequestId)
+
+  if (current && current.version !== parsed.data.expectedVersion) {
+    return {
+      ok: false,
+      error: `Page changed elsewhere (server v${current.version}, you have v${parsed.data.expectedVersion}).`,
+      clientRequestId: parsed.data.clientRequestId,
+    }
   }
 
-  const access = await requireWorkspaceAccess(parsed.data.workspaceId)
+  const nextVersion = (current?.version ?? 0) + 1
+  const now = new Date().toISOString()
 
-  if (!access.ok) {
-    return access.state
-  }
+  const { error: upsertErr } = await access.admin.from('page_documents').upsert(
+    {
+      page_id: parsed.data.pageId,
+      workspace_id: parsed.data.workspaceId,
+      content_json: (parsed.data.contentJson ?? { blocks: [] }) as never,
+      version: nextVersion,
+      updated_by: access.user.id,
+      updated_at: now,
+    },
+    { onConflict: 'page_id' },
+  )
 
-  try {
-    const widget = await getWidget(
-      access.admin,
-      parsed.data.workspaceId,
-      parsed.data.widgetId,
-    )
+  if (upsertErr) return fail(upsertErr.message, parsed.data.clientRequestId)
 
-    if (!widget || !WIDGET_TYPES.includes(widget.widget_type as WidgetType)) {
-      return error('Widget not found.')
-    }
+  await access.admin
+    .from('pages')
+    .update({ updated_at: now, last_edited_by: access.user.id })
+    .eq('id', parsed.data.pageId)
+    .eq('workspace_id', parsed.data.workspaceId)
 
-    const source = await resolveDataSource(
-      access.admin,
-      parsed.data.workspaceId,
-      parsed.data.dataSourceType,
-      parsed.data.dataSourceId,
-    )
+  return ok({ version: nextVersion }, parsed.data.clientRequestId)
+}
 
-    if (!source) {
-      return error('Choose a valid data source.')
-    }
+// ===========================================================================
+// VISITS / RECENTS
+// ===========================================================================
+const recordPageVisitSchema = stackBase.extend({ pageId: z.string().uuid() })
 
-    const widgetType = widget.widget_type as WidgetType
-    const { error: updateError } = await access.admin
-      .from('widgets')
-      .update({
-        title: parsed.data.title,
-        data_source_type: source.type,
-        data_source_id: source.id,
-        config_json: serializeWidgetConfig(
-          widgetConfigForForm(widgetType, parsed.data),
-        ),
+export async function recordPageVisit(
+  input: z.input<typeof recordPageVisitSchema>,
+): Promise<PageActionResult> {
+  const parsed = recordPageVisitSchema.safeParse(input)
+  if (!parsed.success) return fail(firstError(parsed.error))
+  const access = await requirePagePermission(
+    parsed.data.workspaceId,
+    parsed.data.pageId,
+    'view',
+  )
+  if (!access.ok) return fail(access.error)
+
+  const { error } = await access.admin.from('page_visits').upsert(
+    {
+      workspace_id: parsed.data.workspaceId,
+      user_id: access.user.id,
+      page_id: parsed.data.pageId,
+      last_opened_at: new Date().toISOString(),
+    },
+    { onConflict: 'workspace_id,user_id,page_id' },
+  )
+
+  if (error) return fail(error.message)
+  return ok()
+}
+
+// ===========================================================================
+// PAGE FORMS
+// ===========================================================================
+const formFieldSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  type: z.enum(['text', 'long_text', 'number', 'select', 'date', 'email', 'url', 'checkbox']),
+  required: z.boolean().optional(),
+  options: z.array(z.string()).optional(),
+})
+
+const upsertPageFormSchema = stackBase.extend({
+  pageId: z.string().uuid(),
+  blockId: z.string().min(1),
+  title: z.string().trim().min(1).max(160).optional(),
+  description: z.string().trim().max(800).optional(),
+  fields: z.array(formFieldSchema).default([]),
+  submitText: z.string().trim().min(1).max(40).optional(),
+  successMessage: z.string().trim().min(1).max(280).optional(),
+})
+
+export async function upsertPageForm(
+  input: z.input<typeof upsertPageFormSchema>,
+): Promise<PageActionResult<{ id: string }>> {
+  const parsed = upsertPageFormSchema.safeParse(input)
+  if (!parsed.success) return fail(firstError(parsed.error))
+  const access = await requirePagePermission(
+    parsed.data.workspaceId,
+    parsed.data.pageId,
+    'edit',
+  )
+  if (!access.ok) return fail(access.error)
+
+  const { data, error } = await access.admin
+    .from('page_forms')
+    .upsert(
+      {
+        workspace_id: parsed.data.workspaceId,
+        page_id: parsed.data.pageId,
+        block_id: parsed.data.blockId,
+        title: parsed.data.title ?? 'Form',
+        description: parsed.data.description ?? null,
+        fields_json: parsed.data.fields as never,
+        submit_text: parsed.data.submitText ?? 'Submit',
+        success_message: parsed.data.successMessage ?? 'Thanks for submitting!',
         updated_at: new Date().toISOString(),
-      })
-      .eq('workspace_id', parsed.data.workspaceId)
-      .eq('id', parsed.data.widgetId)
-
-    if (updateError) {
-      return error(updateError.message)
-    }
-  } catch (updateError) {
-    return error(
-      updateError instanceof Error ? updateError.message : 'Widget not updated.',
+      },
+      { onConflict: 'page_id,block_id' },
     )
-  }
+    .select('id')
+    .single()
 
-  revalidateWorkspacePages(parsed.data.workspaceId)
-  return success('Widget updated.')
+  if (error) return fail(error.message)
+  revalidatePageRoutes(parsed.data.pageId)
+  return ok({ id: data.id })
 }
 
-export async function reorderWidget(
-  _state: LayoutActionState = initialActionState,
-  formData: FormData,
-): Promise<LayoutActionState> {
-  const parsed = reorderWidgetSchema.safeParse({
-    workspaceId: formData.get('workspaceId'),
-    widgetId: formData.get('widgetId'),
-    direction: formData.get('direction'),
-  })
+const submitPageFormSchema = z.object({
+  formId: z.string().uuid(),
+  values: z.record(z.unknown()),
+  publicToken: z.string().optional(),
+})
 
-  if (!parsed.success) {
-    return error(firstError(parsed.error))
-  }
+export async function submitPageForm(
+  input: z.input<typeof submitPageFormSchema>,
+): Promise<PageActionResult<{ id: string }>> {
+  const parsed = submitPageFormSchema.safeParse(input)
+  if (!parsed.success) return fail(firstError(parsed.error))
 
-  const access = await requireWorkspaceAccess(parsed.data.workspaceId)
+  const admin = createAdminClient()
+  const { data: form, error: formErr } = await admin
+    .from('page_forms')
+    .select('id, workspace_id, page_id')
+    .eq('id', parsed.data.formId)
+    .maybeSingle()
+  if (formErr) return fail(formErr.message)
+  if (!form) return fail('Form not found.')
 
-  if (!access.ok) {
-    return access.state
-  }
+  let submittedBy: string | null = null
 
-  try {
-    const widget = await getWidget(
-      access.admin,
-      parsed.data.workspaceId,
-      parsed.data.widgetId,
+  if (parsed.data.publicToken) {
+    const resolution = await resolveShareToken(parsed.data.publicToken)
+    if (
+      !resolution ||
+      resolution.link.link_type !== 'public' ||
+      resolution.link.workspace_id !== form.workspace_id
+    ) {
+      return fail('Public form link is invalid or expired.')
+    }
+
+    const inScope = await pageIsInsideShareScope({
+      workspaceId: form.workspace_id,
+      pageId: form.page_id,
+      scopeType: resolution.link.scope_type === 'stack' ? 'stack' : 'page',
+      scopeId: resolution.link.scope_id,
+    })
+    if (!inScope) return fail('This form is not available from this link.')
+  } else {
+    const access = await requirePagePermission(
+      form.workspace_id,
+      form.page_id,
+      'view',
     )
-
-    if (!widget?.page_id) {
-      return error('Widget not found.')
-    }
-
-    const { data: widgets, error: widgetsError } = await access.admin
-      .from('widgets')
-      .select('id, position')
-      .eq('workspace_id', parsed.data.workspaceId)
-      .eq('page_id', widget.page_id)
-      .order('position', { ascending: true })
-      .order('created_at', { ascending: true })
-
-    if (widgetsError) {
-      return error(widgetsError.message)
-    }
-
-    const currentIndex = widgets?.findIndex((item) => item.id === widget.id) ?? -1
-    const nextIndex =
-      parsed.data.direction === 'up' ? currentIndex - 1 : currentIndex + 1
-    const neighbor = widgets?.[nextIndex]
-
-    if (currentIndex < 0 || !neighbor) {
-      return success('Widget order unchanged.')
-    }
-
-    const currentPosition = widget.position ?? currentIndex
-    const neighborPosition = neighbor.position ?? nextIndex
-    const [currentUpdate, neighborUpdate] = await Promise.all([
-      access.admin
-        .from('widgets')
-        .update({
-          position: neighborPosition,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('workspace_id', parsed.data.workspaceId)
-        .eq('id', widget.id),
-      access.admin
-        .from('widgets')
-        .update({
-          position: currentPosition,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('workspace_id', parsed.data.workspaceId)
-        .eq('id', neighbor.id),
-    ])
-
-    if (currentUpdate.error) {
-      return error(currentUpdate.error.message)
-    }
-
-    if (neighborUpdate.error) {
-      return error(neighborUpdate.error.message)
-    }
-  } catch (reorderError) {
-    return error(
-      reorderError instanceof Error ? reorderError.message : 'Widget not reordered.',
-    )
+    if (!access.ok) return fail(access.error)
+    submittedBy = access.user.id
   }
 
-  revalidateWorkspacePages(parsed.data.workspaceId)
-  return success('Widget reordered.')
+  const { data: submission, error: insertErr } = await admin
+    .from('page_form_submissions')
+    .insert({
+      workspace_id: form.workspace_id,
+      form_id: parsed.data.formId,
+      values_json: parsed.data.values as never,
+      submitted_by: submittedBy,
+    })
+    .select('id')
+    .single()
+
+  if (insertErr) return fail(insertErr.message)
+  return ok({ id: submission.id })
 }
